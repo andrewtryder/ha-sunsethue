@@ -1,0 +1,23 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "include-component-in-tag": false,
+  "packages": {
+    ".": {
+      "extra-files": [
+        {
+          "jsonpath": "$.version",
+          "path": "custom_components/sunsethue/manifest.json",
+          "type": "json"
+        },
+        {
+          "path": "custom_components/sunsethue/const.py",
+          "type": "generic"
+        }
+      ],
+      "package-name": "ha-sunsethue",
+      "release-type": "python"
+    }
+  },
+  "pull-request-title-pattern": "chore: release${component} ${version}",
+  "release-type": "python"
+}

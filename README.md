@@ -77,13 +77,22 @@ uv run pytest
 pre-commit run --all-files
 ```
 
-The GitHub workflows validate HACS, Hassfest, linting, and tests against the
-minimum supported and current stable Home Assistant releases. Publish a semantic
-version tag only after green CI; the release workflow verifies the manifest,
-packages `custom_components/sunsethue`, writes a checksum, and creates a GitHub
-Release. Consult Sunsethue's current developer page and terms for pricing,
-quotas, and permitted use rather than relying on this repository for those
-details.
+The GitHub workflows validate HACS, Hassfest, linting, GitHub Actions syntax,
+and tests against the minimum supported and current stable Home Assistant
+releases. Release Please opens and publishes releases from Conventional Commits,
+updates the integration version, packages `custom_components/sunsethue`, and
+uploads a checksum. Do not create release tags manually.
+
+## Contributing
+
+Use Conventional Commits for every commit. Valid types include `feat`, `fix`,
+`docs`, `test`, `refactor`, `ci`, and `chore`; use `feat!:` or a breaking-change
+footer for a major release. `feat:` produces a minor release and `fix:` a patch
+release. Run `npm ci` followed by `npm run commitlint -- --from <base-sha> --to
+HEAD` before opening a pull request.
+
+Consult Sunsethue's current developer page and terms for pricing, quotas, and
+permitted use rather than relying on this repository for those details.
 
 ## Roadmap
 

@@ -8,7 +8,7 @@ from enum import StrEnum
 
 DOMAIN = "sunsethue"
 NAME = "SunsetHue"
-VERSION = "0.1.0"
+VERSION = "0.1.0"  # x-release-please-version
 MIN_HA_VERSION = "2026.3.0"
 
 API_BASE_URL = "https://api.sunsethue.com"
