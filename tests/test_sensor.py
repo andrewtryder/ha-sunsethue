@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 from custom_components.sunsethue.const import SunsetHueEventType
 from custom_components.sunsethue.models import (
     Coordinates,
@@ -17,6 +20,7 @@ from custom_components.sunsethue.sensor import (
     SunsetHueDetailedSensor,
     SunsetHueQualitySensor,
     _configured_keys,
+    async_setup_entry,
 )
 
 
@@ -31,6 +35,16 @@ def test_configured_keys_default_three_days(mock_config_entry) -> None:
         ForecastKey(2, SunsetHueEventType.SUNRISE),
         ForecastKey(2, SunsetHueEventType.SUNSET),
     ]
+
+
+def test_configured_keys_supports_single_event(mock_config_entry) -> None:
+    """A disabled event type does not create superfluous entities."""
+    entry = MockConfigEntry(
+        domain="sunsethue",
+        data=mock_config_entry.data,
+        options={"forecast_days": 1, "include_sunrise": False, "include_sunset": True},
+    )
+    assert _configured_keys(entry) == [ForecastKey(0, SunsetHueEventType.SUNSET)]
 
 
 def test_quality_sensor_converts_percentage_and_attributes(mock_config_entry) -> None:
@@ -92,3 +106,32 @@ def test_detailed_sensor_is_unavailable_for_missing_field(mock_config_entry) -> 
     )
     assert sensor.native_value is None
     assert not sensor.available
+
+
+def test_quality_sensor_is_unavailable_without_a_forecast(mock_config_entry) -> None:
+    """Only an affected entity becomes unavailable when its record is absent."""
+    key = ForecastKey(0, SunsetHueEventType.SUNSET)
+    coordinator = SimpleNamespace(
+        data=SunsetHueCoordinatorData.from_forecasts({}),
+        last_update_success=True,
+        async_add_listener=lambda *args: lambda: None,
+        device_info=None,
+    )
+    sensor = SunsetHueQualitySensor(coordinator, mock_config_entry, key)
+    assert sensor.extra_state_attributes == {}
+    assert not sensor.available
+
+
+@pytest.mark.asyncio
+async def test_entity_setup_includes_opt_in_detail_entities(hass, mock_config_entry) -> None:
+    """Detailed entities are created only when the option is explicitly enabled."""
+    entry = MockConfigEntry(
+        domain="sunsethue",
+        title=mock_config_entry.title,
+        data=mock_config_entry.data,
+        options={"forecast_days": 1, "create_detailed_entities": True},
+    )
+    entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(device_info=None))
+    entities = []
+    await async_setup_entry(hass, entry, entities.extend)
+    assert len(entities) == 16
