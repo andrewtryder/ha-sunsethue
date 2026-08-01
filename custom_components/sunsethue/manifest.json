@@ -1,12 +1,14 @@
 {
   "domain": "sunsethue",
   "name": "SunsetHue",
-  "codeowners": ["@andrewtryder"],
+  "codeowners": [
+    "@andrewtryder"
+  ],
   "config_flow": true,
   "documentation": "https://github.com/andrewtryder/ha-sunsethue",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/andrewtryder/ha-sunsethue/issues",
   "requirements": [],
-  "version": "0.1.0"
+  "version": "0.1.1"
 }
