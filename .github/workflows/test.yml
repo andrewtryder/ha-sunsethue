@@ -14,10 +14,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.14
+      - run: uv venv --python 3.14
       - name: Install minimum Home Assistant
         if: matrix.homeassistant != 'latest'
-        run: uv pip install --system "homeassistant==${{ matrix.homeassistant }}" pytest-homeassistant-custom-component pytest-cov
+        run: uv pip install --python .venv/bin/python "homeassistant==${{ matrix.homeassistant }}" pytest-homeassistant-custom-component pytest-cov
       - name: Install current Home Assistant
         if: matrix.homeassistant == 'latest'
-        run: uv pip install --system homeassistant pytest-homeassistant-custom-component pytest-cov
-      - run: pytest
+        run: uv pip install --python .venv/bin/python homeassistant pytest-homeassistant-custom-component pytest-cov
+      - run: .venv/bin/pytest

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
+from unittest.mock import AsyncMock
 
-from custom_components.sunsethue import is_supported_home_assistant_version
+import pytest
+from homeassistant.exceptions import ConfigEntryError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components import sunsethue
+from custom_components.sunsethue import _async_update_listener, async_migrate_entry, is_supported_home_assistant_version
 from custom_components.sunsethue.const import API_BASE_URL
 
 
@@ -23,3 +28,27 @@ async def test_setup_and_unload(hass, mock_config_entry, aioclient_mock, event_f
     await hass.async_block_till_done()
     assert mock_config_entry.runtime_data.coordinator.data is not None
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_setup_rejects_unsupported_home_assistant(hass, mock_config_entry, monkeypatch) -> None:
+    """The runtime gate protects unsupported Home Assistant installations."""
+    monkeypatch.setattr(sunsethue, "is_supported_home_assistant_version", lambda: False)
+    with pytest.raises(ConfigEntryError):
+        await sunsethue.async_setup_entry(hass, mock_config_entry)
+
+
+@pytest.mark.asyncio
+async def test_migration_rejects_unknown_major_version(hass, mock_config_entry) -> None:
+    """Future incompatible config-entry schemas are not silently accepted."""
+    entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=2)
+    assert not await async_migrate_entry(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_update_listener_reloads_entry(hass, mock_config_entry, monkeypatch) -> None:
+    """Options and reconfigure changes reload the integration exactly once."""
+    reload = AsyncMock()
+    monkeypatch.setattr(hass.config_entries, "async_reload", reload)
+    await _async_update_listener(hass, mock_config_entry)
+    reload.assert_awaited_once_with(mock_config_entry.entry_id)
