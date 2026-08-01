@@ -9,16 +9,14 @@ import pytest
 
 from custom_components.sunsethue.const import SunsetHueEventType
 from custom_components.sunsethue.diagnostics import (
-    _rounded_location,
     _serialize_datetime,
     async_get_config_entry_diagnostics,
 )
 from custom_components.sunsethue.models import Coordinates, EventForecast, ForecastKey, SunsetHueCoordinatorData
 
 
-def test_diagnostics_round_location_and_serialize_none() -> None:
-    """Diagnostics do not retain exact coordinates or unserializable values."""
-    assert _rounded_location(40.7128, -74.006) == {"latitude": 40.7, "longitude": -74.0}
+def test_diagnostics_serialize_none() -> None:
+    """Diagnostics retain only serializable values."""
     assert _serialize_datetime(None) is None
 
 
@@ -50,5 +48,7 @@ async def test_diagnostics_redacts_runtime_data(hass, mock_config_entry) -> None
     mock_config_entry.runtime_data = SimpleNamespace(coordinator=coordinator)
     data = await async_get_config_entry_diagnostics(hass, mock_config_entry)
     assert data["redacted"]["api_key"] == "REDACTED"
-    assert data["location"] == {"latitude": 40.7, "longitude": -74.0}
+    assert data["location"] == "REDACTED"
+    assert data["forecasts"]["0_sunset"]["grid_location"] == "REDACTED"
+    assert "time_zone" not in data
     assert data["coordinator"]["forecast_keys"] == ["0_sunset"]

@@ -5,6 +5,7 @@ on:
     branches: [main]
 jobs:
   test:
+    name: Test (${{ matrix.homeassistant }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

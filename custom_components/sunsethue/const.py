@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from datetime import timedelta
 from enum import StrEnum
 
+from homeassistant.const import Platform
+
 DOMAIN = "sunsethue"
 NAME = "SunsetHue"
 VERSION = "0.1.0"  # x-release-please-version
@@ -40,7 +42,7 @@ DEFAULT_CREATE_DETAILED_ENTITIES = False
 VALID_UPDATE_INTERVAL_HOURS = (6, 12, 24)
 MAX_FORECAST_DAYS = 3
 
-PLATFORMS = ["sensor"]
+PLATFORMS = [Platform.SENSOR]
 
 
 class SunsetHueEventType(StrEnum):

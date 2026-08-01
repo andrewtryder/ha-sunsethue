@@ -58,11 +58,6 @@ def _normalize_coordinate(value: float) -> str:
     return f"{value:.5f}"
 
 
-def _location_unique_id(latitude: float, longitude: float) -> str:
-    """Return the stable unique ID for a normalized location."""
-    return f"{_normalize_coordinate(latitude)}:{_normalize_coordinate(longitude)}"
-
-
 def _valid_time_zone(value: str) -> str:
     """Validate an IANA time zone name."""
     try:
@@ -89,7 +84,7 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration and credential maintenance."""
 
     VERSION = 1
-    MINOR_VERSION = 0
+    MINOR_VERSION = 1
 
     async def async_step_user(self, user_input: Mapping[str, Any] | None = None) -> ConfigFlowResult:
         """Handle initial UI setup."""
@@ -102,9 +97,9 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             normalized = self._normalize_user_input(user_input, errors)
             if normalized is not None:
-                await self.async_set_unique_id(
-                    _location_unique_id(normalized[CONF_LATITUDE], normalized[CONF_LONGITUDE])
-                )
+                if self._location_is_configured(normalized[CONF_LATITUDE], normalized[CONF_LONGITUDE]):
+                    return self.async_abort(reason="already_configured")
+                await self.async_set_unique_id(normalized[CONF_LOCATION_ID])
                 self._abort_if_unique_id_configured()
                 error = await _async_validate_connection(self.hass, normalized)
                 if error is None:
@@ -153,11 +148,10 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             candidate = {**entry.data, **user_input}
             normalized = self._normalize_user_input(candidate, errors)
             if normalized is not None:
-                unique_id = _location_unique_id(normalized[CONF_LATITUDE], normalized[CONF_LONGITUDE])
+                unique_id = normalized[CONF_LOCATION_ID]
                 await self.async_set_unique_id(unique_id)
-                if any(
-                    configured_entry.entry_id != entry.entry_id and configured_entry.unique_id == unique_id
-                    for configured_entry in self._async_current_entries()
+                if self._location_is_configured(
+                    normalized[CONF_LATITUDE], normalized[CONF_LONGITUDE], except_entry_id=entry.entry_id
                 ):
                     errors["base"] = "already_configured"
                 else:
@@ -212,6 +206,17 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_TIME_ZONE: time_zone,
             CONF_LOCATION_ID: str(user_input.get(CONF_LOCATION_ID) or uuid4()),
         }
+
+    def _location_is_configured(self, latitude: float, longitude: float, *, except_entry_id: str | None = None) -> bool:
+        """Return whether normalized coordinates already belong to another entry."""
+        normalized_latitude = _normalize_coordinate(latitude)
+        normalized_longitude = _normalize_coordinate(longitude)
+        return any(
+            configured_entry.entry_id != except_entry_id
+            and _normalize_coordinate(float(configured_entry.data[CONF_LATITUDE])) == normalized_latitude
+            and _normalize_coordinate(float(configured_entry.data[CONF_LONGITUDE])) == normalized_longitude
+            for configured_entry in self._async_current_entries()
+        )
 
     def _user_defaults(self, user_input: Mapping[str, Any] | None) -> dict[str, Any]:
         """Use Home Assistant's configured location as initial form defaults."""

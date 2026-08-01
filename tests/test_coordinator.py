@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
 from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, Mock
 
@@ -21,7 +23,10 @@ from custom_components.sunsethue.const import (
     CONF_FORECAST_DAYS,
     CONF_INCLUDE_SUNRISE,
     CONF_INCLUDE_SUNSET,
+    CONF_TIME_ZONE,
+    CONF_UPDATE_INTERVAL,
     SunsetHueEventType,
+    update_interval_from_options,
 )
 from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator
 from custom_components.sunsethue.models import Coordinates, EventForecast
@@ -40,7 +45,8 @@ class _Client:
         self.calls.append((event_date, event_type))
         if isinstance(self.result, Exception):
             raise self.result
-        return self.result
+        assert isinstance(self.result, EventForecast)
+        return replace(self.result, event_type=event_type)
 
 
 def _forecast(event_type: SunsetHueEventType = SunsetHueEventType.SUNSET) -> EventForecast:
@@ -70,6 +76,7 @@ async def test_default_plan_requests_six_forecasts(hass, mock_config_entry) -> N
     data = await coordinator._async_update_data()
     assert len(client.calls) == 6
     assert len(data.forecasts) == 6
+    assert {forecast.forecast_date for forecast in data.forecasts.values()} == {item[0] for item in client.calls}
 
 
 @pytest.mark.asyncio
@@ -89,6 +96,44 @@ async def test_sunrise_only_plan(hass, mock_config_entry) -> None:
     coordinator = SunsetHueDataUpdateCoordinator(hass, sunrise_entry, client)  # type: ignore[arg-type]  # MockConfigEntry is runtime-compatible.
     await coordinator._async_update_data()
     assert [event_type for _, event_type in client.calls] == [SunsetHueEventType.SUNRISE]
+
+
+@pytest.mark.asyncio
+async def test_two_day_sunset_only_plan(hass, mock_config_entry) -> None:
+    """The configured grid selects exactly the requested event/date pairs."""
+    entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        title=mock_config_entry.title,
+        data=mock_config_entry.data,
+        options={CONF_FORECAST_DAYS: 2, CONF_INCLUDE_SUNRISE: False, CONF_INCLUDE_SUNSET: True},
+    )
+    client = _Client(_forecast())
+    data = await SunsetHueDataUpdateCoordinator(hass, entry, client)._async_update_data()  # type: ignore[arg-type]
+    assert len(data.forecasts) == 2
+    assert {event_type for _, event_type in client.calls} == {SunsetHueEventType.SUNSET}
+
+
+@pytest.mark.asyncio
+async def test_configured_timezone_controls_requested_dates(hass, mock_config_entry, monkeypatch) -> None:
+    """Forecast dates are calculated in the entry's IANA time zone, including DST dates."""
+    entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data={**mock_config_entry.data, CONF_TIME_ZONE: "America/New_York"},
+        options={CONF_FORECAST_DAYS: 1, CONF_INCLUDE_SUNRISE: False, CONF_INCLUDE_SUNSET: True},
+    )
+    monkeypatch.setattr(
+        "custom_components.sunsethue.coordinator.dt_util.now",
+        lambda _time_zone: datetime(2026, 3, 8, 0, 30, tzinfo=_time_zone),
+    )
+    client = _Client(_forecast())
+    await SunsetHueDataUpdateCoordinator(hass, entry, client)._async_update_data()  # type: ignore[arg-type]
+    assert client.calls == [(date(2026, 3, 8), SunsetHueEventType.SUNSET)]
+
+
+@pytest.mark.parametrize("hours", [6, 12, 24])
+def test_supported_update_intervals(hours: int) -> None:
+    """Every documented interval is retained without a fallback."""
+    assert update_interval_from_options({CONF_UPDATE_INTERVAL: hours}).total_seconds() == hours * 3600
 
 
 @pytest.mark.asyncio
@@ -131,6 +176,67 @@ async def test_generic_sunsethue_failure_becomes_update_failure(hass, mock_confi
     coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, _Client(SunsetHueError()))  # type: ignore[arg-type]
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
+
+
+@pytest.mark.asyncio
+async def test_failure_cancels_sibling_requests(hass, mock_config_entry) -> None:
+    """A failed request stops concurrent work before it can spend more credits."""
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    class Client:
+        async def async_get_event(self, _coordinates, _event_date, event_type):
+            if event_type is SunsetHueEventType.SUNRISE:
+                await asyncio.sleep(0)
+                raise SunsetHueConnectionError()
+            sibling_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                sibling_cancelled.set()
+                raise
+
+    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, Client())  # type: ignore[arg-type]
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+    assert sibling_started.is_set()
+    assert sibling_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_limits_requests_to_three(hass, mock_config_entry) -> None:
+    """A full grid never sends more than three concurrent API calls."""
+    active = 0
+    maximum_active = 0
+
+    class Client:
+        async def async_get_event(self, _coordinates, _event_date, event_type):
+            nonlocal active, maximum_active
+            active += 1
+            maximum_active = max(maximum_active, active)
+            await asyncio.sleep(0)
+            active -= 1
+            return _forecast(event_type)
+
+    await SunsetHueDataUpdateCoordinator(hass, mock_config_entry, Client())._async_update_data()  # type: ignore[arg-type]
+    assert maximum_active == 3
+
+
+@pytest.mark.asyncio
+async def test_mismatched_client_response_is_rejected(hass, mock_config_entry) -> None:
+    """Coordinator keys cannot receive a response for another event type."""
+
+    class Client:
+        async def async_get_event(self, _coordinates, _event_date, _event_type):
+            return _forecast(SunsetHueEventType.SUNRISE)
+
+    entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        data=mock_config_entry.data,
+        options={CONF_FORECAST_DAYS: 1, CONF_INCLUDE_SUNRISE: False, CONF_INCLUDE_SUNSET: True},
+    )
+    with pytest.raises(UpdateFailed):
+        await SunsetHueDataUpdateCoordinator(hass, entry, Client())._async_update_data()  # type: ignore[arg-type]
 
 
 def test_device_info_and_midnight_callback_cleanup(hass, mock_config_entry, monkeypatch) -> None:

@@ -9,10 +9,7 @@ from homeassistant.core import HomeAssistant
 from . import SunsetHueConfigEntry
 from .const import (
     CONF_API_KEY,
-    CONF_LATITUDE,
     CONF_LOCATION_ID,
-    CONF_LONGITUDE,
-    CONF_TIME_ZONE,
     VERSION,
 )
 
@@ -32,13 +29,12 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: SunsetH
                 "event_time": _serialize_datetime(forecast.event_time),
                 "direction": forecast.direction,
                 "response_time": _serialize_datetime(forecast.response_time),
-                "grid_location": _rounded_location(forecast.grid_location.latitude, forecast.grid_location.longitude),
+                "grid_location": "REDACTED",
             }
     return {
         "integration_version": VERSION,
         "options": dict(entry.options),
-        "location": _rounded_location(float(entry.data[CONF_LATITUDE]), float(entry.data[CONF_LONGITUDE])),
-        "time_zone": entry.data[CONF_TIME_ZONE],
+        "location": "REDACTED",
         "coordinator": {
             "last_update_success": coordinator.last_update_success,
             "last_exception_type": (
@@ -49,11 +45,6 @@ async def async_get_config_entry_diagnostics(hass: HomeAssistant, entry: SunsetH
         "forecasts": forecasts,
         "redacted": {CONF_API_KEY: "REDACTED", CONF_LOCATION_ID: "REDACTED"},
     }
-
-
-def _rounded_location(latitude: float, longitude: float) -> dict[str, float]:
-    """Reduce location precision for diagnostics."""
-    return {"latitude": round(latitude, 1), "longitude": round(longitude, 1)}
 
 
 def _serialize_datetime(value: object) -> str | None:

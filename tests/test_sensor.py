@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -64,6 +64,7 @@ def test_quality_sensor_converts_percentage_and_attributes(mock_config_entry) ->
         direction=180,
         blue_hour=None,
         golden_hour=None,
+        forecast_date=date(2026, 8, 1),
     )
     coordinator = SimpleNamespace(
         data=SunsetHueCoordinatorData.from_forecasts({key: forecast}),
@@ -75,6 +76,9 @@ def test_quality_sensor_converts_percentage_and_attributes(mock_config_entry) ->
     assert sensor.native_value == 45.6
     assert sensor.available
     assert sensor.extra_state_attributes["cloud_cover_percent"] == 20.0
+    assert sensor.extra_state_attributes["forecast_date"] == "2026-08-01"
+    assert "grid_latitude" not in sensor.extra_state_attributes
+    assert "grid_longitude" not in sensor.extra_state_attributes
 
 
 def test_detailed_sensor_is_unavailable_for_missing_field(mock_config_entry) -> None:

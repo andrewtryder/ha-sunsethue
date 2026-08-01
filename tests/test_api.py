@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 
 import aiohttp
 import pytest
@@ -19,7 +20,7 @@ from custom_components.sunsethue.api import (
     _parse_event_forecast,
     _parse_retry_after,
 )
-from custom_components.sunsethue.const import API_BASE_URL, SunsetHueEventType
+from custom_components.sunsethue.const import API_BASE_URL, VERSION, SunsetHueEventType
 from custom_components.sunsethue.models import Coordinates
 
 
@@ -171,6 +172,61 @@ async def test_client_parses_response(hass, aioclient_mock, event_full: dict[str
     assert forecast.quality_text == "Good"
 
 
+@pytest.mark.asyncio
+async def test_client_sends_documented_request_contract(event_full: dict[str, Any]) -> None:
+    """Credentials stay in the header and the complete query is explicit."""
+
+    class Content:
+        async def read(self, _size: int) -> bytes:
+            return json.dumps(event_full).encode()
+
+    class Response:
+        status = 200
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+
+        def get(self, url: str, **kwargs: Any) -> Response:
+            self.calls.append((url, kwargs))
+            return Response()
+
+    session = Session()
+    await SunsetHueClient(session, "test-key").async_get_event(  # type: ignore[arg-type]
+        Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+    )
+    url, request = session.calls[0]
+    assert url == f"{API_BASE_URL}/event"
+    assert request["params"] == {
+        "latitude": 1,
+        "longitude": 2,
+        "date": "2026-08-01",
+        "type": "sunset",
+        "forecast": "true",
+    }
+    assert request["headers"] == {"x-api-key": "test-key", "User-Agent": f"HomeAssistant/SunsetHue/{VERSION}"}
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_response_for_wrong_event_type(hass, aioclient_mock, event_full: dict[str, Any]) -> None:
+    """A valid response cannot be assigned to a different requested event."""
+    event_full["data"]["type"] = "sunrise"
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    with pytest.raises(SunsetHueInvalidResponseError, match="event type"):
+        await SunsetHueClient(async_get_clientsession(hass), "test-key").async_get_event(
+            Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+        )
+
+
 def test_invalid_timestamp_is_rejected(event_full: dict[str, Any]) -> None:
     """Malformed timestamps cannot reach entities."""
     event_full["data"]["time"] = "not-a-date"
@@ -227,3 +283,31 @@ def test_invalid_schema_is_rejected(event_full: dict[str, Any], mutate) -> None:
     mutate(event_full)
     with pytest.raises(SunsetHueInvalidResponseError):
         _parse_event_forecast(event_full)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda payload: payload["data"].update({"quality": -0.01}),
+        lambda payload: payload["data"].update({"quality": 1.01}),
+        lambda payload: payload["data"].update({"cloud_cover": -0.01}),
+        lambda payload: payload["data"].update({"cloud_cover": 1.01}),
+        lambda payload: payload["data"].update({"direction": -0.01}),
+        lambda payload: payload["data"].update({"direction": 360.01}),
+        lambda payload: payload["location"].update({"latitude": -90.01}),
+        lambda payload: payload["location"].update({"longitude": 180.01}),
+        lambda payload: payload["grid_location"].update({"latitude": 90.01}),
+        lambda payload: payload["grid_location"].update({"longitude": -180.01}),
+    ],
+)
+def test_parser_rejects_out_of_range_values(event_full: dict[str, Any], mutate) -> None:
+    """Documented numeric ranges prevent nonsensical Home Assistant states."""
+    mutate(event_full)
+    with pytest.raises(SunsetHueInvalidResponseError):
+        _parse_event_forecast(event_full)
+
+
+def test_parser_normalizes_full_circle_direction(event_full: dict[str, Any]) -> None:
+    """360° is accepted and represented as the equivalent 0° direction."""
+    event_full["data"]["direction"] = 360
+    assert _parse_event_forecast(event_full).direction == 0
