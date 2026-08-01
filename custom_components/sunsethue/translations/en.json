@@ -1,0 +1,83 @@
+{
+  "title": "SunsetHue",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up SunsetHue",
+        "description": "Add one forecast location.",
+        "data": {
+          "location_name": "Location name",
+          "api_key": "API key",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "time_zone": "Time zone"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect SunsetHue",
+        "description": "Enter a replacement SunsetHue API key.",
+        "data": {"api_key": "API key"}
+      },
+      "reconfigure": {
+        "title": "Reconfigure SunsetHue",
+        "description": "Change this forecast location. Your API key is retained.",
+        "data": {
+          "location_name": "Location name",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "time_zone": "Time zone"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The API key was rejected.",
+      "cannot_connect": "Unable to connect to SunsetHue.",
+      "rate_limited": "SunsetHue is rate limiting requests. Try again later.",
+      "invalid_coordinates": "The coordinates are invalid or unsupported.",
+      "invalid_time_zone": "Enter a valid IANA time zone, such as America/New_York.",
+      "invalid_response": "SunsetHue returned an invalid response.",
+      "already_configured": "This location is already configured.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "min_ha_version": "SunsetHue requires Home Assistant {version} or later.",
+      "already_configured": "This location is already configured.",
+      "reauth_successful": "SunsetHue has been reconnected.",
+      "reconfigure_successful": "SunsetHue has been reconfigured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "SunsetHue options",
+        "data": {
+          "forecast_days": "Forecast days",
+          "include_sunrise": "Include sunrise forecasts",
+          "include_sunset": "Include sunset forecasts",
+          "update_interval": "Update interval (hours)",
+          "create_detailed_entities": "Create detailed forecast entities"
+        }
+      }
+    },
+    "error": {
+      "invalid_forecast_days": "Choose between one and three forecast days.",
+      "invalid_update_interval": "Choose 6, 12, or 24 hours.",
+      "no_events_selected": "Enable sunrise, sunset, or both."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "quality": {"name": "{day} {event} quality"},
+      "event_time": {"name": "{day} {event} event time"},
+      "cloud_cover": {"name": "{day} {event} cloud cover"},
+      "direction": {"name": "{day} {event} direction"},
+      "golden_hour_start": {"name": "{day} {event} golden hour start"},
+      "golden_hour_end": {"name": "{day} {event} golden hour end"},
+      "blue_hour_start": {"name": "{day} {event} blue hour start"},
+      "blue_hour_end": {"name": "{day} {event} blue hour end"}
+    }
+  },
+  "exceptions": {
+    "reauth_required": {"message": "SunsetHue authentication failed. Reconfigure the integration with a new API key."}
+  }
+}

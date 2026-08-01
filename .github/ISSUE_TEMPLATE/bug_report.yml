@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible SunsetHue integration problem.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include your API key, exact address, or diagnostics without reviewing them.
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant redacted logs
+      render: text

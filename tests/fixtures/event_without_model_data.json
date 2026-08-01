@@ -1,0 +1,12 @@
+{
+  "time": "2026-08-01T12:00:00.000Z",
+  "location": {"latitude": 40.7128, "longitude": -74.006},
+  "grid_location": {"latitude": 41.0, "longitude": -74.0},
+  "data": {
+    "type": "sunrise",
+    "model_data": false,
+    "time": "2026-08-01T10:01:00.000Z",
+    "direction": 60.3,
+    "magics": {"blue_hour": [null, null]}
+  }
+}

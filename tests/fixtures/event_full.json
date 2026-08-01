@@ -1,0 +1,18 @@
+{
+  "time": "2026-08-01T12:00:00.000Z",
+  "location": {"latitude": 40.7128, "longitude": -74.006},
+  "grid_location": {"latitude": 41.0, "longitude": -74.0},
+  "data": {
+    "type": "sunset",
+    "model_data": true,
+    "quality": 0.45,
+    "cloud_cover": 0.32,
+    "quality_text": "Good",
+    "time": "2026-08-01T23:11:00.000Z",
+    "direction": 256.7,
+    "magics": {
+      "blue_hour": ["2026-08-01T23:24:00.000Z", "2026-08-01T23:37:00.000Z"],
+      "golden_hour": ["2026-08-01T22:44:00.000Z", "2026-08-01T23:16:00.000Z"]
+    }
+  }
+}

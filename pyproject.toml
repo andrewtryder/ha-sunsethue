@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha-sunsethue"
+version = "0.1.0"
+description = "HACS custom integration for SunsetHue forecasts"
+requires-python = ">=3.14"
+license = {text = "MIT"}
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+extend-exclude = ["custom_components/sunsethue/brand"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "--strict-markers --cov=custom_components.sunsethue --cov-report=term-missing --cov-fail-under=95"
+
+[tool.coverage.run]
+branch = true
+source = ["custom_components/sunsethue"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+exclude = ["tests"]
+
+[[tool.mypy.overrides]]
+module = ["homeassistant.*", "voluptuous.*"]
+follow_untyped_imports = true
