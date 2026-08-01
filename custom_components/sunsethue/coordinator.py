@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, time, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -20,9 +21,7 @@ from homeassistant.util import dt as dt_util
 from .api import (
     SunsetHueAuthError,
     SunsetHueClient,
-    SunsetHueConnectionError,
     SunsetHueError,
-    SunsetHueInvalidRequestError,
     SunsetHueInvalidResponseError,
     SunsetHueRateLimitError,
 )
@@ -94,27 +93,31 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
         today = dt_util.now(self._time_zone).date()
         semaphore = asyncio.Semaphore(3)
 
-        async def fetch(key: ForecastKey) -> tuple[ForecastKey, EventForecast]:
+        forecasts: dict[ForecastKey, EventForecast] = {}
+
+        async def fetch(key: ForecastKey) -> None:
             async with semaphore:
-                forecast = await self.client.async_get_event(
-                    coordinates, today + timedelta(days=key.day_offset), key.event_type
-                )
-            return key, forecast
+                forecast_date = today + timedelta(days=key.day_offset)
+                forecast = await self.client.async_get_event(coordinates, forecast_date, key.event_type)
+            if forecast.event_type is not key.event_type:
+                raise SunsetHueInvalidResponseError("Response event type does not match request")
+            forecasts[key] = replace(forecast, forecast_date=forecast_date)
 
         keys = [ForecastKey(day_offset, event_type) for day_offset in range(days) for event_type in events]
         try:
-            results = await asyncio.gather(*(fetch(key) for key in keys))
-        except SunsetHueAuthError as err:
-            raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="reauth_required") from err
-        except SunsetHueRateLimitError as err:
-            raise UpdateFailed("SunsetHue API rate limit reached", retry_after=err.retry_after) from err
-        except (SunsetHueConnectionError, SunsetHueInvalidRequestError) as err:
+            async with asyncio.TaskGroup() as task_group:
+                for key in keys:
+                    task_group.create_task(fetch(key))
+        except BaseExceptionGroup as err:
+            error = next(iter(_iter_sunsethue_errors(err)), None)
+            if isinstance(error, SunsetHueAuthError):
+                raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="reauth_required") from err
+            if isinstance(error, SunsetHueRateLimitError):
+                raise UpdateFailed("SunsetHue API rate limit reached", retry_after=error.retry_after) from err
+            if isinstance(error, SunsetHueInvalidResponseError):
+                raise UpdateFailed("SunsetHue API returned an invalid response") from err
             raise UpdateFailed("Unable to update SunsetHue forecast") from err
-        except SunsetHueInvalidResponseError as err:
-            raise UpdateFailed("SunsetHue API returned an invalid response") from err
-        except SunsetHueError as err:
-            raise UpdateFailed("Unable to update SunsetHue forecast") from err
-        return SunsetHueCoordinatorData.from_forecasts(dict(results))
+        return SunsetHueCoordinatorData.from_forecasts(forecasts)
 
     def _enabled_events(self) -> tuple[SunsetHueEventType, ...]:
         events: list[SunsetHueEventType] = []
@@ -137,3 +140,14 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
             entry_type=dr.DeviceEntryType.SERVICE,
             configuration_url="https://sunsethue.com/dev-api",
         )
+
+
+def _iter_sunsethue_errors(error_group: BaseExceptionGroup) -> tuple[SunsetHueError, ...]:
+    """Flatten TaskGroup failures to their client error causes."""
+    errors: list[SunsetHueError] = []
+    for error in error_group.exceptions:
+        if isinstance(error, BaseExceptionGroup):
+            errors.extend(_iter_sunsethue_errors(error))
+        elif isinstance(error, SunsetHueError):
+            errors.append(error)
+    return tuple(errors)

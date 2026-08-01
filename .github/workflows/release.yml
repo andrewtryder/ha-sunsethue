@@ -47,7 +47,7 @@ jobs:
         run: |
           mkdir -p dist
           cd custom_components
-          zip -r ../dist/sunsethue.zip sunsethue
+          zip -r ../dist/sunsethue.zip sunsethue -x '*/__pycache__/*' '*.pyc' '*.pyo'
           cd ..
           sha256sum dist/sunsethue.zip > dist/sunsethue.zip.sha256
       - name: Upload release assets
@@ -55,3 +55,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
         run: gh release upload "$RELEASE_TAG" dist/sunsethue.zip dist/sunsethue.zip.sha256 --clobber
+      - name: Verify published release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: |
+          test "$(gh release view "$RELEASE_TAG" --json isDraft,isPrerelease --jq '.isDraft == false and .isPrerelease == false')" = true
+          assets="$(gh release view "$RELEASE_TAG" --json assets --jq '[.assets[].name] | sort | join(" ")')"
+          test "$assets" = "sunsethue.zip sunsethue.zip.sha256"
+          mkdir -p verify/dist
+          gh release download "$RELEASE_TAG" -p sunsethue.zip -p sunsethue.zip.sha256 -D verify/dist
+          (cd verify && sha256sum --check dist/sunsethue.zip.sha256)

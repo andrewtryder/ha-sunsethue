@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.sunsethue.const import (
     CONF_API_KEY,
     CONF_LATITUDE,
+    CONF_LOCATION_ID,
     CONF_LOCATION_NAME,
     CONF_LONGITUDE,
     CONF_TIME_ZONE,
@@ -43,12 +44,13 @@ def mock_config_entry() -> MockConfigEntry:
     return MockConfigEntry(
         domain="sunsethue",
         title="Home",
-        unique_id="40.71280:-74.00600",
+        unique_id="test-location-id",
         data={
             CONF_API_KEY: "test-api-key",
             CONF_LOCATION_NAME: "Home",
             CONF_LATITUDE: 40.7128,
             CONF_LONGITUDE: -74.006,
             CONF_TIME_ZONE: "America/New_York",
+            CONF_LOCATION_ID: "test-location-id",
         },
     )

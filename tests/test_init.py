@@ -10,7 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components import sunsethue
 from custom_components.sunsethue import _async_update_listener, async_migrate_entry, is_supported_home_assistant_version
-from custom_components.sunsethue.const import API_BASE_URL
+from custom_components.sunsethue.const import API_BASE_URL, CONF_LOCATION_ID
 
 
 def test_minimum_version_gate() -> None:
@@ -23,6 +23,7 @@ def test_minimum_version_gate() -> None:
 async def test_setup_and_unload(hass, mock_config_entry, aioclient_mock, event_full) -> None:
     """First refresh creates typed runtime data and unloads cleanly."""
     mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options={"include_sunrise": False})
     aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
@@ -42,6 +43,24 @@ async def test_setup_rejects_unsupported_home_assistant(hass, mock_config_entry,
 async def test_migration_rejects_unknown_major_version(hass, mock_config_entry) -> None:
     """Future incompatible config-entry schemas are not silently accepted."""
     entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=2)
+    assert not await async_migrate_entry(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_migration_replaces_coordinate_unique_id_with_location_id(hass, mock_config_entry) -> None:
+    """The privacy migration is upward-only and retains stable entry identity."""
+    data = {key: value for key, value in mock_config_entry.data.items() if key != CONF_LOCATION_ID}
+    entry = MockConfigEntry(domain="sunsethue", data=data, unique_id="40.71280:-74.00600", version=1, minor_version=0)
+    entry.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry)
+    assert entry.minor_version == 1
+    assert entry.unique_id == entry.data[CONF_LOCATION_ID]
+
+
+@pytest.mark.asyncio
+async def test_migration_rejects_future_minor_version(hass, mock_config_entry) -> None:
+    """A future schema is never migrated backward."""
+    entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=1, minor_version=2)
     assert not await async_migrate_entry(hass, entry)
 
 

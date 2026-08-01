@@ -34,6 +34,8 @@ QUALITY_DESCRIPTION = SensorEntityDescription(
     key="quality", translation_key="quality", native_unit_of_measurement=PERCENTAGE
 )
 
+PARALLEL_UPDATES = 0
+
 _DETAILED_DESCRIPTIONS: tuple[tuple[SensorEntityDescription, Callable[[EventForecast], Any]], ...] = (
     (
         SensorEntityDescription(
@@ -178,8 +180,6 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
             "forecast_date": self._forecast_date,
             "event_type": forecast.event_type.value,
             "model_data": forecast.model_data,
-            "grid_latitude": forecast.grid_location.latitude,
-            "grid_longitude": forecast.grid_location.longitude,
             "response_time": forecast.response_time,
         }
         optional = {
@@ -199,7 +199,7 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
     @property
     def _forecast_date(self) -> str | None:
         forecast = self._forecast
-        return None if forecast is None or forecast.event_time is None else forecast.event_time.date().isoformat()
+        return None if forecast is None or forecast.forecast_date is None else forecast.forecast_date.isoformat()
 
 
 class SunsetHueDetailedSensor(_SunsetHueForecastSensor):

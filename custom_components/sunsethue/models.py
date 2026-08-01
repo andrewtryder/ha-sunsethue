@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from types import MappingProxyType
 
 from .const import SunsetHueEventType
@@ -42,6 +42,7 @@ class EventForecast:
     direction: float | None
     blue_hour: MagicHourWindow | None
     golden_hour: MagicHourWindow | None
+    forecast_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)

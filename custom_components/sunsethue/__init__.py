@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from uuid import uuid4
 
 from awesomeversion import AwesomeVersion
 from homeassistant.config_entries import ConfigEntry
@@ -14,7 +15,7 @@ from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SunsetHueClient
-from .const import CONF_API_KEY, MIN_HA_VERSION, PLATFORMS
+from .const import CONF_API_KEY, CONF_LOCATION_ID, MIN_HA_VERSION, PLATFORMS
 from .coordinator import SunsetHueDataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,10 +68,13 @@ async def _async_update_listener(hass: HomeAssistant, entry: SunsetHueConfigEntr
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) -> bool:
-    """Accept the initial schema and reserve migration support for later releases."""
+    """Migrate known config-entry schemas upward only."""
     _LOGGER.debug("Migrating SunsetHue entry from %s.%s", entry.version, entry.minor_version)
-    if entry.version != 1:
+    if entry.version != 1 or entry.minor_version > 1:
         return False
-    if entry.minor_version != 0:
-        hass.config_entries.async_update_entry(entry, minor_version=0)
+    if entry.minor_version == 0:
+        data = dict(entry.data)
+        location_id = str(data.get(CONF_LOCATION_ID) or uuid4())
+        data[CONF_LOCATION_ID] = location_id
+        hass.config_entries.async_update_entry(entry, data=data, unique_id=location_id, minor_version=1)
     return True

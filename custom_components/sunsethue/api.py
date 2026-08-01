@@ -17,12 +17,13 @@ from .const import (
     API_TIMEOUT_SECONDS,
     MAX_RESPONSE_BYTES,
     MAX_RETRY_AFTER_SECONDS,
+    VERSION,
     SunsetHueEventType,
 )
 from .models import Coordinates, EventForecast, MagicHourWindow
 
 _LOGGER = logging.getLogger(__name__)
-_USER_AGENT = "HomeAssistant/SunsetHue"
+_USER_AGENT = f"HomeAssistant/SunsetHue/{VERSION}"
 
 
 class SunsetHueError(Exception):
@@ -107,7 +108,7 @@ class SunsetHueClient:
             payload = json.loads(body)
         except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as err:
             raise SunsetHueInvalidResponseError("Invalid JSON response") from err
-        return _parse_event_forecast(payload)
+        return _parse_event_forecast(payload, expected_event_type=event_type)
 
     @staticmethod
     def _raise_for_status(response: aiohttp.ClientResponse) -> None:
@@ -139,7 +140,11 @@ def _parse_retry_after(value: str | None) -> int | None:
     return max(0, min(seconds, MAX_RETRY_AFTER_SECONDS))
 
 
-def _parse_event_forecast(payload: Any) -> EventForecast:
+def _parse_event_forecast(
+    payload: Any,
+    *,
+    expected_event_type: SunsetHueEventType | None = None,
+) -> EventForecast:
     """Validate documented response fields and ignore unknown additions."""
     if not isinstance(payload, dict):
         raise SunsetHueInvalidResponseError("Response root must be an object")
@@ -149,17 +154,19 @@ def _parse_event_forecast(payload: Any) -> EventForecast:
     except ValueError as err:
         raise SunsetHueInvalidResponseError("Unsupported event type") from err
     model_data = _required_bool(data, "model_data")
+    if expected_event_type is not None and event_type is not expected_event_type:
+        raise SunsetHueInvalidResponseError("Response event type does not match request")
     return EventForecast(
         response_time=_parse_datetime(_required_string(payload, "time")),
         location=_parse_coordinates(_required_object(payload, "location")),
         grid_location=_parse_coordinates(_required_object(payload, "grid_location")),
         event_type=event_type,
         model_data=model_data,
-        quality=_optional_number(data, "quality"),
+        quality=_optional_bounded_number(data, "quality", minimum=0, maximum=1),
         quality_text=_optional_string(data, "quality_text"),
-        cloud_cover=_optional_number(data, "cloud_cover"),
+        cloud_cover=_optional_bounded_number(data, "cloud_cover", minimum=0, maximum=1),
         event_time=_optional_datetime(data, "time"),
-        direction=_optional_number(data, "direction"),
+        direction=_parse_direction(data),
         blue_hour=_optional_magic_window(data, "blue_hour"),
         golden_hour=_optional_magic_window(data, "golden_hour"),
     )
@@ -205,7 +212,10 @@ def _optional_number(value: dict[str, Any], key: str) -> float | None:
 
 
 def _parse_coordinates(value: dict[str, Any]) -> Coordinates:
-    return Coordinates(_required_number(value, "latitude"), _required_number(value, "longitude"))
+    return Coordinates(
+        _required_bounded_number(value, "latitude", minimum=-90, maximum=90),
+        _required_bounded_number(value, "longitude", minimum=-180, maximum=180),
+    )
 
 
 def _required_number(value: dict[str, Any], key: str) -> float:
@@ -213,6 +223,30 @@ def _required_number(value: dict[str, Any], key: str) -> float:
     if item is None:
         raise SunsetHueInvalidResponseError(f"Missing or invalid {key}")
     return item
+
+
+def _optional_bounded_number(value: dict[str, Any], key: str, *, minimum: float, maximum: float) -> float | None:
+    """Return an optional finite number within the documented range."""
+    item = _optional_number(value, key)
+    if item is None:
+        return None
+    if not minimum <= item <= maximum:
+        raise SunsetHueInvalidResponseError(f"Invalid {key}")
+    return item
+
+
+def _required_bounded_number(value: dict[str, Any], key: str, *, minimum: float, maximum: float) -> float:
+    """Return a required finite number within the documented range."""
+    item = _optional_bounded_number(value, key, minimum=minimum, maximum=maximum)
+    if item is None:
+        raise SunsetHueInvalidResponseError(f"Missing or invalid {key}")
+    return item
+
+
+def _parse_direction(data: dict[str, Any]) -> float | None:
+    """Return degrees in the canonical half-open [0, 360) range."""
+    direction = _optional_bounded_number(data, "direction", minimum=0, maximum=360)
+    return 0.0 if direction == 360 else direction
 
 
 def _optional_datetime(value: dict[str, Any], key: str) -> datetime | None:

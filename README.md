@@ -5,6 +5,8 @@ SunsetHue is an unofficial community Home Assistant integration for the
 quality sensors for sunrise and sunset at one or more locations. It is neither
 reviewed, endorsed, nor supported by Home Assistant or Sunsethue.
 
+[![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-sunsethue&category=integration)
+
 ## Requirements
 
 - Home Assistant 2026.3.0 or newer.
@@ -14,8 +16,9 @@ reviewed, endorsed, nor supported by Home Assistant or Sunsethue.
 ## Install
 
 In HACS, add `https://github.com/andrewtryder/ha-sunsethue` as an Integration
-custom repository, install **SunsetHue**, then restart Home Assistant. For a
-manual installation, copy `custom_components/sunsethue` from a release into
+custom repository, install a numbered **SunsetHue** release, then restart Home
+Assistant. Do not install `main` for normal use. For a manual installation,
+copy `custom_components/sunsethue` from a release into
 `<config>/custom_components/sunsethue`, then restart.
 
 Add **SunsetHue** from *Settings → Devices & services → Add integration*.
@@ -39,6 +42,14 @@ sunset, a 6/12/24-hour polling interval, and detail entities from the
 integration options. The six-hour default follows Sunsethue's cache guidance;
 the integration also refreshes shortly after each location's local midnight.
 
+| Entity | Unit | Availability |
+| --- | --- | --- |
+| Quality (default) | % | Unavailable only when that forecast has no model quality or is missing. |
+| Event time (optional) | Timestamp | Unavailable when the API does not provide an event time. |
+| Cloud cover (optional) | % | Unavailable when the API does not provide cloud cover. |
+| Direction (optional) | ° | Unavailable when the API does not provide direction. |
+| Blue/golden-hour boundaries (optional) | Timestamp | Unavailable when the relevant boundary is absent. |
+
 Example dashboard card:
 
 ```yaml
@@ -56,16 +67,20 @@ lighting examples.
 
 The API key is stored in the config entry and sent only as the documented
 `x-api-key` HTTPS header. It is never included in entity IDs, states,
-attributes, logs, diagnostics, or test fixtures. Diagnostics round coordinate
-values and do not include request headers. Use *Settings → Devices & services
-→ SunsetHue → Download diagnostics* when opening an issue, reviewing the file
-before sharing it.
+attributes, logs, diagnostics, or test fixtures. Diagnostics redact configured
+and model-grid coordinates and do not include request headers. Use *Settings →
+Devices & services → SunsetHue → Download diagnostics* when opening an issue,
+reviewing the file before sharing it.
 
 If an API key is revoked or expires, Home Assistant starts reauthentication.
 See [troubleshooting](docs/troubleshooting.md) for rate limits and availability.
 Remove an entry from its integration page, then uninstall through HACS or delete
 `custom_components/sunsethue`; removing an entry does not alter your Sunsethue
 account or API key.
+
+## Support
+
+Report reproducible integration defects through [GitHub Issues](https://github.com/andrewtryder/ha-sunsethue/issues). Never include an API key, exact address, or unreviewed diagnostics.
 
 ## Development and release
 

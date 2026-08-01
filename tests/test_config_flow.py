@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE, SOURCE_USER
+from homeassistant.data_entry_flow import InvalidData
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.sunsethue import config_flow
 from custom_components.sunsethue.api import (
@@ -17,17 +21,17 @@ from custom_components.sunsethue.api import (
 from custom_components.sunsethue.config_flow import (
     SunsetHueConfigFlow,
     _async_validate_connection,
-    _location_unique_id,
+    _normalize_coordinate,
     _options_schema,
     _reconfigure_schema,
     _valid_time_zone,
 )
-from custom_components.sunsethue.const import API_BASE_URL, DOMAIN
+from custom_components.sunsethue.const import API_BASE_URL, CONF_LOCATION_ID, DOMAIN
 
 
-def test_location_unique_id_is_normalized() -> None:
-    """Equivalent coordinate precision cannot create duplicate entries."""
-    assert _location_unique_id(1, 2) == _location_unique_id(1.0000001, 2.0000001)
+def test_normalized_coordinates_are_stable() -> None:
+    """Equivalent coordinate precision identifies the same configured place."""
+    assert _normalize_coordinate(1) == _normalize_coordinate(1.0000001)
 
 
 def test_invalid_time_zone_is_rejected() -> None:
@@ -59,6 +63,28 @@ async def test_user_flow_creates_entry(hass, aioclient_mock, event_full) -> None
     assert result["type"] == "create_entry"
     assert result["title"] == "Home"
     assert result["data"]["api_key"] == "test-key"
+    assert result["data"][CONF_LOCATION_ID]
+
+
+@pytest.mark.asyncio
+async def test_user_flow_uses_home_assistant_location_defaults(hass) -> None:
+    """The initial form starts from Home Assistant's configured location."""
+    hass.config.location_name = "Configured home"
+    hass.config.latitude = 12.34
+    hass.config.longitude = 56.78
+    hass.config.time_zone = "UTC"
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    defaults = {
+        key.schema: key.description["suggested_value"]
+        for key in result["data_schema"].schema
+        if key.description and "suggested_value" in key.description
+    }
+    assert {key: defaults[key] for key in ("location_name", "latitude", "longitude", "time_zone")} == {
+        "location_name": "Configured home",
+        "latitude": 12.34,
+        "longitude": 56.78,
+        "time_zone": "UTC",
+    }
 
 
 @pytest.mark.asyncio
@@ -91,6 +117,38 @@ async def test_user_flow_reports_auth_failure(hass, aioclient_mock) -> None:
     assert result["errors"] == {"base": "invalid_auth"}
 
 
+@pytest.mark.asyncio
+async def test_user_flow_rejects_duplicate_normalized_location(hass, mock_config_entry) -> None:
+    """Opaque entry IDs do not weaken location duplicate prevention."""
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Duplicate",
+            "api_key": "test-key",
+            "latitude": 40.7128001,
+            "longitude": -74.0060001,
+            "time_zone": "America/New_York",
+        },
+    )
+    assert result["type"] == "abort"
+    assert result["reason"] == "already_configured"
+
+
+@pytest.mark.asyncio
+async def test_user_flow_recovers_after_connection_error(hass, monkeypatch) -> None:
+    """A user can correct a transient validation failure in the same flow."""
+    validate = AsyncMock(side_effect=["cannot_connect", None])
+    monkeypatch.setattr(config_flow, "_async_validate_connection", validate)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    user_input = {"location_name": "Home", "api_key": "key", "latitude": 1, "longitude": 2, "time_zone": "UTC"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
+    assert result["errors"] == {"base": "cannot_connect"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
+    assert result["type"] == "create_entry"
+
+
 def test_normalize_user_input_validates_all_persisted_values() -> None:
     """The flow stores normalized coordinates and never accepts blank secrets."""
     flow = SunsetHueConfigFlow()
@@ -110,6 +168,7 @@ def test_normalize_user_input_validates_all_persisted_values() -> None:
     assert normalized["location_name"] == "Home"
     assert normalized["api_key"] == "key"
     assert normalized["latitude"] == 40.71281
+    assert normalized[CONF_LOCATION_ID]
 
 
 @pytest.mark.parametrize(
@@ -183,6 +242,27 @@ async def test_reconfigure_flow_retains_api_key(hass, mock_config_entry, aioclie
     assert mock_config_entry.data["api_key"] == "test-api-key"
     assert mock_config_entry.title == "Office"
     await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_rejects_another_entry_location(hass, mock_config_entry) -> None:
+    """Reconfigure performs the same coordinate duplicate check as setup."""
+    mock_config_entry.add_to_hass(hass)
+    other = MockConfigEntry(
+        domain=DOMAIN,
+        title="Office",
+        unique_id="office-location-id",
+        data={**mock_config_entry.data, CONF_LOCATION_ID: "office-location-id", "latitude": 41, "longitude": -74},
+    )
+    other.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"location_name": "Home", "latitude": 41, "longitude": -74, "time_zone": "UTC"}
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "already_configured"}
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
@@ -216,6 +296,34 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
     )
     assert result["type"] == "create_entry"
     assert result["data"]["update_interval"] == 6
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "user_input",
+    [
+        {"forecast_days": 4, "update_interval": "6"},
+        {"forecast_days": 1, "update_interval": "5"},
+    ],
+)
+async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry, user_input) -> None:
+    """Selector bounds reject invalid options without persisting them."""
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    invalid = {
+        "forecast_days": 1,
+        "include_sunrise": True,
+        "include_sunset": False,
+        "update_interval": "6",
+        "create_detailed_entities": False,
+        **user_input,
+    }
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(result["flow_id"], invalid)
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    valid = {**invalid, "forecast_days": 1, "update_interval": "12"}
+    result = await hass.config_entries.options.async_configure(result["flow_id"], valid)
+    assert result["type"] == "create_entry"
 
 
 def test_config_schemas_apply_expected_types() -> None:
