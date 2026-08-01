@@ -11,7 +11,7 @@ jobs:
       matrix:
         homeassistant: ["2026.3.4", "latest"]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       - run: uv python install 3.14
       - run: uv venv --python 3.14
