@@ -238,6 +238,44 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return SunsetHueOptionsFlow()
 
 
+def _update_interval_selector_value(value: object) -> str:
+    """Return a valid string value for the update-interval SelectSelector."""
+    if isinstance(value, bool):
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    elif isinstance(value, int):
+        interval = value
+    elif isinstance(value, str):
+        try:
+            interval = int(value)
+        except ValueError:
+            interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    else:
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    if interval not in VALID_UPDATE_INTERVAL_HOURS:
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    return str(interval)
+
+
+def _options_suggested_values(
+    config_entry: config_entries.ConfigEntry,
+    user_input: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build options-form suggested values with selector-compatible types."""
+    suggested = {
+        CONF_FORECAST_DAYS: config_entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS),
+        CONF_INCLUDE_SUNRISE: config_entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE),
+        CONF_INCLUDE_SUNSET: config_entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET),
+        CONF_UPDATE_INTERVAL: config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
+        CONF_CREATE_DETAILED_ENTITIES: config_entry.options.get(
+            CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES
+        ),
+    }
+    if user_input is not None:
+        suggested.update(dict(user_input))
+    suggested[CONF_UPDATE_INTERVAL] = _update_interval_selector_value(suggested[CONF_UPDATE_INTERVAL])
+    return suggested
+
+
 class SunsetHueOptionsFlow(config_entries.OptionsFlow):
     """Options for request scope and entity inventory."""
 
@@ -245,35 +283,44 @@ class SunsetHueOptionsFlow(config_entries.OptionsFlow):
         """Handle forecast options."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            days = int(user_input[CONF_FORECAST_DAYS])
-            interval = int(user_input[CONF_UPDATE_INTERVAL])
-            if days < 1 or days > MAX_FORECAST_DAYS:
-                errors["base"] = "invalid_forecast_days"
-            elif interval not in VALID_UPDATE_INTERVAL_HOURS:
-                errors["base"] = "invalid_update_interval"
-            elif not user_input[CONF_INCLUDE_SUNRISE] and not user_input[CONF_INCLUDE_SUNSET]:
-                errors["base"] = "no_events_selected"
+            try:
+                days = int(user_input[CONF_FORECAST_DAYS])
+                interval = int(user_input[CONF_UPDATE_INTERVAL])
+                include_sunrise = user_input[CONF_INCLUDE_SUNRISE]
+                include_sunset = user_input[CONF_INCLUDE_SUNSET]
+                create_detailed_entities = user_input[CONF_CREATE_DETAILED_ENTITIES]
+            except KeyError, TypeError, ValueError:
+                errors["base"] = "unknown"
             else:
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        **user_input,
-                        CONF_FORECAST_DAYS: days,
-                        CONF_UPDATE_INTERVAL: interval,
-                    },
-                )
-        defaults = {
-            CONF_FORECAST_DAYS: self.config_entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS),
-            CONF_INCLUDE_SUNRISE: self.config_entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE),
-            CONF_INCLUDE_SUNSET: self.config_entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET),
-            CONF_UPDATE_INTERVAL: self.config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
-            CONF_CREATE_DETAILED_ENTITIES: self.config_entry.options.get(
-                CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES
-            ),
-        }
+                if days < 1 or days > MAX_FORECAST_DAYS:
+                    errors["base"] = "invalid_forecast_days"
+                elif interval not in VALID_UPDATE_INTERVAL_HOURS:
+                    errors["base"] = "invalid_update_interval"
+                elif not include_sunrise and not include_sunset:
+                    errors["base"] = "no_events_selected"
+                elif (
+                    not isinstance(include_sunrise, bool)
+                    or not isinstance(include_sunset, bool)
+                    or not isinstance(create_detailed_entities, bool)
+                ):
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_create_entry(
+                        title="",
+                        data={
+                            CONF_FORECAST_DAYS: days,
+                            CONF_INCLUDE_SUNRISE: include_sunrise,
+                            CONF_INCLUDE_SUNSET: include_sunset,
+                            CONF_UPDATE_INTERVAL: interval,
+                            CONF_CREATE_DETAILED_ENTITIES: create_detailed_entities,
+                        },
+                    )
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(_options_schema(), defaults),
+            data_schema=self.add_suggested_values_to_schema(
+                _options_schema(),
+                _options_suggested_values(self.config_entry, user_input),
+            ),
             errors=errors,
         )
 

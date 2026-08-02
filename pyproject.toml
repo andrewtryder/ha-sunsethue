@@ -41,7 +41,7 @@ indent-style = "space"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "--strict-markers --cov=custom_components.sunsethue --cov-report=term-missing --cov-fail-under=95"
+addopts = "--strict-markers --cov=custom_components.sunsethue --cov-report=term-missing --cov-fail-under=96"
 
 [tool.coverage.run]
 branch = true

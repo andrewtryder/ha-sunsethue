@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.sunsethue.const import SunsetHueEventType
 from custom_components.sunsethue.diagnostics import (
+    _diagnostic_value,
     _serialize_datetime,
     async_get_config_entry_diagnostics,
 )
@@ -18,6 +19,15 @@ from custom_components.sunsethue.models import Coordinates, EventForecast, Forec
 def test_diagnostics_serialize_none() -> None:
     """Diagnostics retain only serializable values."""
     assert _serialize_datetime(None) is None
+
+
+def test_diagnostic_value_normalizes_nested_types() -> None:
+    """Options and forecast metadata stay JSON-safe without leaking objects."""
+    assert _diagnostic_value(None) is None
+    assert _diagnostic_value("ok") == "ok"
+    assert _diagnostic_value([1, {"a": True}]) == [1, {"a": True}]
+    assert _diagnostic_value({"x": [2]}) == {"x": [2]}
+    assert isinstance(_diagnostic_value(SimpleNamespace(name="x")), str)
 
 
 @pytest.mark.asyncio
