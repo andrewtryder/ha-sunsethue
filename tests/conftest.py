@@ -32,6 +32,12 @@ def event_without_model_data() -> dict[str, Any]:
 
 
 @pytest.fixture
+def event_sandown_poor() -> dict[str, Any]:
+    """Return the verified Sandown poor-quality sunset response."""
+    return json.loads((FIXTURES / "event_sandown_poor.json").read_text())
+
+
+@pytest.fixture
 def mock_config_entry() -> MockConfigEntry:
     """Return a default SunsetHue config entry without a real credential."""
     return MockConfigEntry(

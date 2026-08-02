@@ -12,11 +12,22 @@ from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import SunsetHueClient
-from .const import CONF_API_KEY, CONF_LOCATION_ID, MIN_HA_VERSION, PLATFORMS
+from .const import (
+    CONF_API_KEY,
+    CONF_FORECAST_DAYS,
+    CONF_FORECAST_START_OFFSET,
+    CONF_LOCATION_ID,
+    LEGACY_FORECAST_DAYS,
+    LEGACY_FORECAST_START_OFFSET,
+    MIN_HA_VERSION,
+    PLATFORMS,
+)
 from .coordinator import SunsetHueDataUpdateCoordinator
 from .types import SunsetHueConfigEntry, SunsetHueRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
+
+CURRENT_MINOR_VERSION = 2
 
 
 def is_supported_home_assistant_version(version: str = HA_VERSION) -> bool:
@@ -56,11 +67,29 @@ async def _async_update_listener(hass: HomeAssistant, entry: SunsetHueConfigEntr
 async def async_migrate_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) -> bool:
     """Migrate known config-entry schemas upward only."""
     _LOGGER.debug("Migrating SunsetHue entry from %s.%s", entry.version, entry.minor_version)
-    if entry.version != 1 or entry.minor_version > 1:
+    if entry.version != 1 or entry.minor_version > CURRENT_MINOR_VERSION:
         return False
-    if entry.minor_version == 0:
-        data = dict(entry.data)
+
+    data = dict(entry.data)
+    options = dict(entry.options)
+    unique_id = entry.unique_id
+
+    if entry.minor_version < 1:
         location_id = str(data.get(CONF_LOCATION_ID) or uuid4())
         data[CONF_LOCATION_ID] = location_id
-        hass.config_entries.async_update_entry(entry, data=data, unique_id=location_id, minor_version=1)
+        unique_id = location_id
+
+    if entry.minor_version < 2:
+        options.setdefault(CONF_FORECAST_START_OFFSET, LEGACY_FORECAST_START_OFFSET)
+        if CONF_FORECAST_DAYS not in options:
+            options[CONF_FORECAST_DAYS] = LEGACY_FORECAST_DAYS
+
+    hass.config_entries.async_update_entry(
+        entry,
+        data=data,
+        options=options,
+        unique_id=unique_id,
+        minor_version=CURRENT_MINOR_VERSION,
+        version=1,
+    )
     return True

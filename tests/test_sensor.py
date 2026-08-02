@@ -138,4 +138,5 @@ async def test_entity_setup_includes_opt_in_detail_entities(hass, mock_config_en
     entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(device_info=None))
     entities = []
     await async_setup_entry(hass, entry, entities.extend)
-    assert len(entities) == 16
+    assert len(entities) == 18
+    assert sum(1 for entity in entities if entity.unique_id.endswith("_quality_text")) == 2

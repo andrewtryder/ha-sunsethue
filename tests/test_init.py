@@ -10,7 +10,14 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components import sunsethue
 from custom_components.sunsethue import _async_update_listener, async_migrate_entry, is_supported_home_assistant_version
-from custom_components.sunsethue.const import API_BASE_URL, CONF_LOCATION_ID
+from custom_components.sunsethue.const import (
+    API_BASE_URL,
+    CONF_FORECAST_DAYS,
+    CONF_FORECAST_START_OFFSET,
+    CONF_LOCATION_ID,
+    LEGACY_FORECAST_DAYS,
+    LEGACY_FORECAST_START_OFFSET,
+)
 
 
 def test_minimum_version_gate() -> None:
@@ -53,14 +60,48 @@ async def test_migration_replaces_coordinate_unique_id_with_location_id(hass, mo
     entry = MockConfigEntry(domain="sunsethue", data=data, unique_id="40.71280:-74.00600", version=1, minor_version=0)
     entry.add_to_hass(hass)
     assert await async_migrate_entry(hass, entry)
-    assert entry.minor_version == 1
+    assert entry.minor_version == 2
     assert entry.unique_id == entry.data[CONF_LOCATION_ID]
+    assert entry.options[CONF_FORECAST_START_OFFSET] == LEGACY_FORECAST_START_OFFSET
+    assert entry.options[CONF_FORECAST_DAYS] == LEGACY_FORECAST_DAYS
+
+
+@pytest.mark.asyncio
+async def test_migration_preserves_explicit_forecast_days(hass, mock_config_entry) -> None:
+    """Legacy forecast_days values are retained while the start offset defaults to today."""
+    entry = MockConfigEntry(
+        domain="sunsethue",
+        data=mock_config_entry.data,
+        options={CONF_FORECAST_DAYS: 2},
+        version=1,
+        minor_version=1,
+    )
+    entry.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry)
+    assert entry.minor_version == 2
+    assert entry.options[CONF_FORECAST_DAYS] == 2
+    assert entry.options[CONF_FORECAST_START_OFFSET] == LEGACY_FORECAST_START_OFFSET
+
+
+@pytest.mark.asyncio
+async def test_migration_preserves_current_schema(hass, mock_config_entry) -> None:
+    """Already-migrated entries keep their options unchanged."""
+    entry = MockConfigEntry(
+        domain="sunsethue",
+        data=mock_config_entry.data,
+        options={CONF_FORECAST_START_OFFSET: 1, CONF_FORECAST_DAYS: 1},
+        version=1,
+        minor_version=2,
+    )
+    entry.add_to_hass(hass)
+    assert await async_migrate_entry(hass, entry)
+    assert entry.options == {CONF_FORECAST_START_OFFSET: 1, CONF_FORECAST_DAYS: 1}
 
 
 @pytest.mark.asyncio
 async def test_migration_rejects_future_minor_version(hass, mock_config_entry) -> None:
     """A future schema is never migrated backward."""
-    entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=1, minor_version=2)
+    entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=1, minor_version=3)
     assert not await async_migrate_entry(hass, entry)
 
 

@@ -1,0 +1,37 @@
+type: vertical-stack
+cards:
+  - type: entities
+    title: Tomorrow's sunset forecast
+    entities:
+      - entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        name: Quality
+      - entity: sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY
+        name: Description
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: event_time
+        name: Event time
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: cloud_cover_percent
+        name: Cloud cover
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: direction_degrees
+        name: Direction
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: golden_hour_start
+        name: Golden hour start
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: golden_hour_end
+        name: Golden hour end
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: blue_hour_start
+        name: Blue hour start
+      - type: attribute
+        entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+        attribute: blue_hour_end
+        name: Blue hour end

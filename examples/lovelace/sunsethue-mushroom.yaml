@@ -1,0 +1,26 @@
+type: vertical-stack
+cards:
+  - type: custom:mushroom-chips-card
+    chips:
+      - type: template
+        entity: sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY
+        content: >-
+          {{ states('sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY') }}
+          ·
+          {{ states('sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY') }}%
+        icon: mdi:weather-sunset
+        icon_color: >-
+          {% set quality = states('sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY') | lower %}
+          {% set colors = {
+            'poor': 'red',
+            'fair': 'orange',
+            'good': 'yellow',
+            'great': 'green',
+            'excellent': 'purple'
+          } %}
+          {{ colors.get(quality, 'grey') }}
+  - type: entities
+    title: Tomorrow's sunset forecast
+    entities:
+      - sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
+      - sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY
