@@ -29,7 +29,6 @@ from .const import (
     CONF_INCLUDE_SUNSET,
     CONF_LATITUDE,
     CONF_LONGITUDE,
-    CONF_TIME_ZONE,
     DEFAULT_INCLUDE_SUNRISE,
     DEFAULT_INCLUDE_SUNSET,
     DOMAIN,
@@ -48,11 +47,17 @@ _LOGGER = logging.getLogger(__name__)
 class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorData]):
     """Fetch a complete, consistent forecast grid for a config entry."""
 
-    def __init__(self, hass: HomeAssistant, entry: SunsetHueConfigEntry, client: SunsetHueClient) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: SunsetHueConfigEntry,
+        client: SunsetHueClient,
+        time_zone: ZoneInfo,
+    ) -> None:
         """Initialize the coordinator for one location."""
         self.client = client
         self._entry = entry
-        self._time_zone = ZoneInfo(entry.data[CONF_TIME_ZONE])
+        self._time_zone = time_zone
         self._cancel_midnight: Callable[[], None] | None = None
         super().__init__(
             hass,

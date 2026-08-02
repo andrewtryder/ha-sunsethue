@@ -205,3 +205,38 @@ async def test_reauth_before_setup_schedules_reload(
     assert result["reason"] == "reauth_successful"
     assert mock_config_entry.data["api_key"] == "replacement-key"
     schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_reauth_with_unchanged_api_key_schedules_reload(
+    hass, mock_config_entry, aioclient_mock, event_full, monkeypatch
+) -> None:
+    """Successful same-key reauth still reloads so a previously failed entry can load."""
+    mock_config_entry.add_to_hass(hass)
+    existing_key = mock_config_entry.data["api_key"]
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+
+    schedule_reload = MagicMock()
+    monkeypatch.setattr(hass.config_entries, "async_schedule_reload", schedule_reload)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": mock_config_entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": existing_key})
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.data["api_key"] == existing_key
+    schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+
+
+@pytest.mark.asyncio
+async def test_setup_rejects_invalid_time_zone(hass, mock_config_entry, monkeypatch) -> None:
+    """Entry setup fails closed when the stored IANA zone cannot be resolved."""
+
+    async def _async_none(_key: str):
+        return None
+
+    monkeypatch.setattr(sunsethue.dt_util, "async_get_time_zone", _async_none)
+    with pytest.raises(ConfigEntryError, match="time zone"):
+        await sunsethue.async_setup_entry(hass, mock_config_entry)

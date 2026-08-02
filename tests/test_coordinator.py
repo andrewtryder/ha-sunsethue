@@ -28,8 +28,8 @@ from custom_components.sunsethue.const import (
     SunsetHueEventType,
     update_interval_from_options,
 )
-from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator, _iter_sunsethue_errors
-from tests.helpers import FakeSunsetHueClient, make_forecast
+from custom_components.sunsethue.coordinator import _iter_sunsethue_errors
+from tests.helpers import FakeSunsetHueClient, make_coordinator, make_forecast
 
 
 def test_iter_sunsethue_errors_flattens_nested_groups() -> None:
@@ -46,7 +46,7 @@ def test_iter_sunsethue_errors_flattens_nested_groups() -> None:
 async def test_default_plan_requests_two_forecasts(hass, mock_config_entry) -> None:
     """Today by two enabled event types produces two requests."""
     client = FakeSunsetHueClient(make_forecast())
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, client)  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, client)
     data = await coordinator._async_update_data()
     assert len(client.calls) == 2
     assert len(data.forecasts) == 2
@@ -67,7 +67,7 @@ async def test_sunrise_only_plan(hass, mock_config_entry) -> None:
         },
     )
     client = FakeSunsetHueClient(make_forecast(SunsetHueEventType.SUNRISE))
-    coordinator = SunsetHueDataUpdateCoordinator(hass, sunrise_entry, client)  # type: ignore[arg-type]  # MockConfigEntry is runtime-compatible.
+    coordinator = make_coordinator(hass, sunrise_entry, client)
     await coordinator._async_update_data()
     assert [event_type for _, event_type in client.calls] == [SunsetHueEventType.SUNRISE]
 
@@ -82,7 +82,7 @@ async def test_two_day_sunset_only_plan(hass, mock_config_entry) -> None:
         options={CONF_FORECAST_DAYS: 2, CONF_INCLUDE_SUNRISE: False, CONF_INCLUDE_SUNSET: True},
     )
     client = FakeSunsetHueClient(make_forecast())
-    data = await SunsetHueDataUpdateCoordinator(hass, entry, client)._async_update_data()  # type: ignore[arg-type]
+    data = await make_coordinator(hass, entry, client)._async_update_data()
     assert len(data.forecasts) == 2
     assert {event_type for _, event_type in client.calls} == {SunsetHueEventType.SUNSET}
 
@@ -100,7 +100,7 @@ async def test_configured_timezone_controls_requested_dates(hass, mock_config_en
         lambda _time_zone: datetime(2026, 3, 8, 0, 30, tzinfo=_time_zone),
     )
     client = FakeSunsetHueClient(make_forecast())
-    await SunsetHueDataUpdateCoordinator(hass, entry, client)._async_update_data()  # type: ignore[arg-type]
+    await make_coordinator(hass, entry, client)._async_update_data()
     assert client.calls == [(date(2026, 3, 8), SunsetHueEventType.SUNSET)]
 
 
@@ -113,10 +113,10 @@ def test_supported_update_intervals(hours: int) -> None:
 @pytest.mark.asyncio
 async def test_auth_failure_starts_reauth(hass, mock_config_entry) -> None:
     """Authentication errors use the Home Assistant reauth path."""
-    coordinator = SunsetHueDataUpdateCoordinator(
+    coordinator = make_coordinator(
         hass,
         mock_config_entry,
-        FakeSunsetHueClient(SunsetHueAuthError()),  # type: ignore[arg-type]
+        FakeSunsetHueClient(SunsetHueAuthError()),
     )
     with pytest.raises(ConfigEntryAuthFailed):
         await coordinator._async_update_data()
@@ -125,10 +125,10 @@ async def test_auth_failure_starts_reauth(hass, mock_config_entry) -> None:
 @pytest.mark.asyncio
 async def test_rate_limit_becomes_update_failure(hass, mock_config_entry) -> None:
     """Retry information reaches DataUpdateCoordinator."""
-    coordinator = SunsetHueDataUpdateCoordinator(
+    coordinator = make_coordinator(
         hass,
         mock_config_entry,
-        FakeSunsetHueClient(SunsetHueRateLimitError(30)),  # type: ignore[arg-type]
+        FakeSunsetHueClient(SunsetHueRateLimitError(30)),
     )
     with pytest.raises(UpdateFailed) as caught:
         await coordinator._async_update_data()
@@ -139,7 +139,7 @@ async def test_rate_limit_becomes_update_failure(hass, mock_config_entry) -> Non
 @pytest.mark.parametrize("error", [SunsetHueConnectionError(), SunsetHueInvalidResponseError()])
 async def test_transient_failures_become_update_failures(hass, mock_config_entry, error) -> None:
     """A failed grid refresh does not publish a partial result."""
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, FakeSunsetHueClient(error))  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, FakeSunsetHueClient(error))
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
@@ -147,7 +147,7 @@ async def test_transient_failures_become_update_failures(hass, mock_config_entry
 @pytest.mark.asyncio
 async def test_generic_sunsethue_failure_becomes_update_failure(hass, mock_config_entry) -> None:
     """Unexpected client subclasses retain the atomic refresh guarantee."""
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, FakeSunsetHueClient(SunsetHueError()))  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, FakeSunsetHueClient(SunsetHueError()))
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
 
@@ -170,7 +170,7 @@ async def test_failure_cancels_sibling_requests(hass, mock_config_entry) -> None
                 sibling_cancelled.set()
                 raise
 
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, Client())  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, Client())
     with pytest.raises(UpdateFailed):
         await coordinator._async_update_data()
     assert sibling_started.is_set()
@@ -198,7 +198,7 @@ async def test_coordinator_limits_requests_to_three(hass, mock_config_entry) -> 
             active -= 1
             return make_forecast(event_type)
 
-    await SunsetHueDataUpdateCoordinator(hass, entry, Client())._async_update_data()  # type: ignore[arg-type]
+    await make_coordinator(hass, entry, Client())._async_update_data()
     assert maximum_active == 3
 
 
@@ -216,12 +216,12 @@ async def test_mismatched_client_response_is_rejected(hass, mock_config_entry) -
         options={CONF_FORECAST_DAYS: 1, CONF_INCLUDE_SUNRISE: False, CONF_INCLUDE_SUNSET: True},
     )
     with pytest.raises(UpdateFailed):
-        await SunsetHueDataUpdateCoordinator(hass, entry, Client())._async_update_data()  # type: ignore[arg-type]
+        await make_coordinator(hass, entry, Client())._async_update_data()
 
 
 def test_device_info_and_midnight_callback_cleanup(hass, mock_config_entry, monkeypatch) -> None:
     """Each entry exposes one service device and releases its scheduled callback."""
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, FakeSunsetHueClient(make_forecast()))  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, FakeSunsetHueClient(make_forecast()))
     cancelled = False
 
     def track(*args):
@@ -241,7 +241,7 @@ def test_device_info_and_midnight_callback_cleanup(hass, mock_config_entry, monk
 @pytest.mark.asyncio
 async def test_midnight_callback_reschedules_and_refreshes(hass, mock_config_entry) -> None:
     """The local-midnight callback always replaces itself after execution."""
-    coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, FakeSunsetHueClient(make_forecast()))  # type: ignore[arg-type]
+    coordinator = make_coordinator(hass, mock_config_entry, FakeSunsetHueClient(make_forecast()))
     coordinator.async_schedule_midnight_refresh = Mock()  # type: ignore[method-assign]
     coordinator.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
     await coordinator._async_midnight_refresh(datetime.now(UTC))

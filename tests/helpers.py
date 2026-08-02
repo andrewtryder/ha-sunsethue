@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, date, datetime
+from typing import Any
+from zoneinfo import ZoneInfo
 
+from homeassistant.core import HomeAssistant
+
+from custom_components.sunsethue.api import SunsetHueClient
 from custom_components.sunsethue.const import (
     CONF_API_KEY,
     CONF_LATITUDE,
@@ -14,9 +19,25 @@ from custom_components.sunsethue.const import (
     CONF_TIME_ZONE,
     SunsetHueEventType,
 )
+from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator
 from custom_components.sunsethue.models import Coordinates, EventForecast
+from custom_components.sunsethue.types import SunsetHueConfigEntry
 
 type ConfigEntryData = dict[str, str | float]
+
+
+def make_coordinator(
+    hass: HomeAssistant,
+    entry: SunsetHueConfigEntry | Any,
+    client: SunsetHueClient | Any,
+) -> SunsetHueDataUpdateCoordinator:
+    """Build a coordinator with a synchronously resolved test time zone."""
+    return SunsetHueDataUpdateCoordinator(
+        hass,
+        entry,
+        client,
+        ZoneInfo(str(entry.data[CONF_TIME_ZONE])),
+    )
 
 
 def make_config_entry_data() -> ConfigEntryData:

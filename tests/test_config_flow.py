@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
-import voluptuous as vol
 from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.data_entry_flow import InvalidData
 from homeassistant.helpers import config_validation as cv
@@ -24,6 +23,7 @@ from custom_components.sunsethue.api import (
 from custom_components.sunsethue.config_flow import (
     SunsetHueConfigFlow,
     _async_reconfigure_schema,
+    _async_resolve_time_zone,
     _async_time_zone_options,
     _async_validate_connection,
     _build_time_zone_options,
@@ -31,7 +31,6 @@ from custom_components.sunsethue.config_flow import (
     _normalize_coordinate,
     _options_schema,
     _time_zone_names,
-    _valid_time_zone,
     _with_included_zone,
 )
 from custom_components.sunsethue.const import API_BASE_URL, CONF_API_KEY, CONF_LOCATION_ID, CONF_TIME_ZONE, DOMAIN
@@ -59,22 +58,8 @@ def test_normalized_coordinates_are_stable() -> None:
     assert _normalize_coordinate(1) == _normalize_coordinate(1.0000001)
 
 
-@pytest.mark.parametrize(
-    "time_zone",
-    ["", "/etc/passwd", "../UTC", "not/a-time-zone"],
-)
-def test_invalid_time_zone_is_rejected(time_zone: str) -> None:
-    """Malformed and unknown zone keys raise a form-friendly validation error."""
-    with pytest.raises(vol.Invalid):
-        _valid_time_zone(time_zone)
-
-
-@pytest.mark.parametrize(
-    "time_zone",
-    ["", "/etc/passwd", "../UTC", "not/a-time-zone"],
-)
-def test_normalize_user_input_rejects_malformed_time_zones(time_zone: str) -> None:
-    """Direct submissions still map unknown zones to invalid_time_zone."""
+def test_normalize_user_input_rejects_blank_time_zone() -> None:
+    """Blank zones are rejected locally; IANA validity is checked asynchronously."""
     flow = SunsetHueConfigFlow()
     errors: dict[str, str] = {}
     assert (
@@ -84,13 +69,34 @@ def test_normalize_user_input_rejects_malformed_time_zones(time_zone: str) -> No
                 "api_key": "key",
                 "latitude": 40.7128,
                 "longitude": -74.006,
-                "time_zone": time_zone,
+                "time_zone": "",
             },
             errors,
         )
         is None
     )
     assert errors == {"base": "invalid_time_zone"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "time_zone",
+    ["/etc/passwd", "../UTC", "not/a-time-zone"],
+)
+async def test_async_resolve_time_zone_rejects_unknown_keys(time_zone: str) -> None:
+    """Unknown zone keys resolve to None without blocking the event loop."""
+    assert await _async_resolve_time_zone(time_zone) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "time_zone",
+    ["/etc/passwd", "../UTC", "not/a-time-zone"],
+)
+async def test_connection_validation_rejects_unknown_time_zones(hass, time_zone: str) -> None:
+    """Backend validation maps unresolved zones to invalid_time_zone."""
+    data = {"api_key": "secret", "latitude": 1, "longitude": 2, "time_zone": time_zone}
+    assert await _async_validate_connection(hass, data) == "invalid_time_zone"
 
 
 @pytest.mark.asyncio
@@ -538,7 +544,10 @@ def test_normalize_user_input_validates_all_persisted_values() -> None:
     [
         ({"latitude": "bad", "longitude": 0, "time_zone": "UTC"}, "invalid_coordinates"),
         ({"latitude": 0, "longitude": 181, "time_zone": "UTC"}, "invalid_coordinates"),
-        ({"latitude": 0, "longitude": 0, "time_zone": "bad/timezone"}, "invalid_time_zone"),
+        (
+            {"latitude": 0, "longitude": 0, "time_zone": "", "location_name": "Home", "api_key": "key"},
+            "invalid_time_zone",
+        ),
         ({"latitude": 0, "longitude": 0, "time_zone": "UTC", "location_name": "", "api_key": "key"}, "unknown"),
     ],
 )
@@ -803,3 +812,13 @@ async def test_connection_validation_maps_safe_errors(hass, monkeypatch, error, 
     monkeypatch.setattr(config_flow, "SunsetHueClient", Client)
     data = {"api_key": "secret", "latitude": 1, "longitude": 2, "time_zone": "UTC"}
     assert await _async_validate_connection(hass, data) == expected
+
+
+@pytest.mark.asyncio
+async def test_connection_validation_resolves_time_zone_asynchronously(hass, monkeypatch) -> None:
+    """Connection validation uses Home Assistant's async zone helper."""
+    resolve = AsyncMock(return_value=None)
+    monkeypatch.setattr(config_flow, "_async_resolve_time_zone", resolve)
+    data = {"api_key": "secret", "latitude": 1, "longitude": 2, "time_zone": "UTC"}
+    assert await _async_validate_connection(hass, data) == "invalid_time_zone"
+    resolve.assert_awaited_once_with("UTC")
