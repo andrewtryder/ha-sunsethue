@@ -24,7 +24,11 @@ jobs:
       - name: Lint commits
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            npm run commitlint -- --from "$(git rev-parse HEAD^)" --to HEAD --verbose
+            if git rev-parse --verify HEAD^2 >/dev/null 2>&1; then
+              npm run commitlint -- --from "$(git rev-parse HEAD^2)" --to "$(git rev-parse HEAD^1)" --verbose
+            else
+              npm run commitlint -- --from "$(git rev-parse HEAD^)" --to HEAD --verbose
+            fi
           else
             npm run commitlint -- --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose
           fi
