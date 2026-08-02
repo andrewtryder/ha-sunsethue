@@ -1,0 +1,21 @@
+name: HACS distribution
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    name: HACS distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify release metadata
+        run: python scripts/verify_release_metadata.py
+      - name: Verify HACS source distribution
+        run: python scripts/verify_hacs_distribution.py
