@@ -107,7 +107,9 @@ The GitHub workflows validate HACS, Hassfest, linting, GitHub Actions syntax,
 and tests against the minimum supported and current stable Home Assistant
 releases. Release Please opens and publishes releases from Conventional Commits,
 updates the integration version, packages `custom_components/sunsethue`, and
-uploads a checksum. Do not create release tags manually.
+uploads a checksum. Do not create release tags manually. For a Release Please
+PR, run **Refresh release lock** on that release branch, then manually dispatch
+the protected validation workflows on the same branch before merging it.
 
 ## Contributing
 
