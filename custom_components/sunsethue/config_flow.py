@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Any
 from uuid import uuid4
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
 import voluptuous as vol
 from homeassistant import config_entries
@@ -65,12 +66,100 @@ def _normalize_coordinate(value: float) -> str:
 
 
 def _valid_time_zone(value: str) -> str:
-    """Validate an IANA time zone name."""
+    """Validate an IANA time-zone key."""
     try:
         ZoneInfo(value)
-    except (TypeError, ZoneInfoNotFoundError) as err:
+    except (TypeError, ValueError, ZoneInfoNotFoundError) as err:
         raise vol.Invalid("invalid_time_zone") from err
     return value
+
+
+def _format_utc_offset(offset: timedelta | None) -> str:
+    """Return an offset such as UTC-04:00."""
+    if offset is None:
+        return "UTC"
+
+    total_minutes = int(offset.total_seconds() // 60)
+    sign = "+" if total_minutes >= 0 else "-"
+    hours, minutes = divmod(abs(total_minutes), 60)
+
+    return f"UTC{sign}{hours:02d}:{minutes:02d}"
+
+
+@lru_cache(maxsize=1)
+def _time_zone_names() -> tuple[str, ...]:
+    """Return supported IANA zones once per process."""
+    return tuple(sorted(zone_name for zone_name in available_timezones() if zone_name == "UTC" or "/" in zone_name))
+
+
+def _time_zone_options(now: datetime) -> list[selector.SelectOptionDict]:
+    """Return labeled time-zone selector options."""
+    options: list[selector.SelectOptionDict] = []
+
+    for zone_name in _time_zone_names():
+        zone = ZoneInfo(zone_name)
+        offset = now.astimezone(zone).utcoffset()
+        options.append(
+            selector.SelectOptionDict(
+                value=zone_name,
+                label=f"({_format_utc_offset(offset)} now) {zone_name.replace('_', ' ')}",
+            )
+        )
+
+    return options
+
+
+def _time_zone_selector(now: datetime) -> selector.SelectSelector:
+    """Return a dropdown selector of IANA time zones."""
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=_time_zone_options(now),
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+async def _async_warm_time_zone_names(hass: HomeAssistant) -> None:
+    """Populate the cached zone-name set off the event loop."""
+    await hass.async_add_executor_job(_time_zone_names)
+
+
+async def _async_user_schema(hass: HomeAssistant) -> vol.Schema:
+    """Build the initial setup schema with supported time zones."""
+    await _async_warm_time_zone_names(hass)
+    return vol.Schema(
+        {
+            vol.Required(CONF_LOCATION_NAME): selector.TextSelector(),
+            vol.Required(CONF_API_KEY): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Required(CONF_LATITUDE): vol.Coerce(float),
+            vol.Required(CONF_LONGITUDE): vol.Coerce(float),
+            vol.Required(CONF_TIME_ZONE): _time_zone_selector(datetime.now(UTC)),
+            vol.Required(
+                CONF_FORECAST_START_OFFSET, default=str(DEFAULT_FORECAST_START_OFFSET)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[str(item) for item in VALID_FORECAST_START_OFFSETS],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="forecast_start_offset",
+                )
+            ),
+        }
+    )
+
+
+async def _async_reconfigure_schema(hass: HomeAssistant) -> vol.Schema:
+    """Return the schema that intentionally excludes the persisted API key."""
+    await _async_warm_time_zone_names(hass)
+    return vol.Schema(
+        {
+            vol.Required(CONF_LOCATION_NAME): selector.TextSelector(),
+            vol.Required(CONF_LATITUDE): vol.Coerce(float),
+            vol.Required(CONF_LONGITUDE): vol.Coerce(float),
+            vol.Required(CONF_TIME_ZONE): _time_zone_selector(datetime.now(UTC)),
+        }
+    )
 
 
 def _update_interval_selector_value(value: object) -> str:
@@ -139,26 +228,6 @@ def _default_options(*, start_offset: int = DEFAULT_FORECAST_START_OFFSET) -> di
     }
 
 
-USER_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_LOCATION_NAME): selector.TextSelector(),
-        vol.Required(CONF_API_KEY): selector.TextSelector(
-            selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
-        ),
-        vol.Required(CONF_LATITUDE): vol.Coerce(float),
-        vol.Required(CONF_LONGITUDE): vol.Coerce(float),
-        vol.Required(CONF_TIME_ZONE): selector.TextSelector(),
-        vol.Required(CONF_FORECAST_START_OFFSET, default=str(DEFAULT_FORECAST_START_OFFSET)): selector.SelectSelector(
-            selector.SelectSelectorConfig(
-                options=[str(item) for item in VALID_FORECAST_START_OFFSETS],
-                mode=selector.SelectSelectorMode.DROPDOWN,
-                translation_key="forecast_start_offset",
-            )
-        ),
-    }
-)
-
-
 class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration and credential maintenance."""
 
@@ -195,7 +264,10 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = error
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(USER_SCHEMA, self._user_defaults(user_input)),
+            data_schema=self.add_suggested_values_to_schema(
+                await _async_user_schema(self.hass),
+                self._user_defaults(user_input),
+            ),
             errors=errors,
         )
 
@@ -222,7 +294,6 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             if error is None:
                 self.hass.config_entries.async_update_entry(self._reauth_entry, data=candidate)
-                await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
                 return self.async_abort(reason="reauth_successful")
             errors["base"] = error
         return self.async_show_form(
@@ -263,7 +334,7 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         forecast_start_offset=start_offset,
                     )
                     if error is None:
-                        return self.async_update_reload_and_abort(
+                        return self.async_update_and_abort(
                             entry,
                             data_updates=normalized,
                             title=normalized[CONF_LOCATION_NAME],
@@ -279,7 +350,10 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=self.add_suggested_values_to_schema(_reconfigure_schema(), user_input or defaults),
+            data_schema=self.add_suggested_values_to_schema(
+                await _async_reconfigure_schema(self.hass),
+                user_input or defaults,
+            ),
             errors=errors,
         )
 
@@ -420,18 +494,6 @@ def _options_suggested_values(
     suggested[CONF_FORECAST_DAYS] = _forecast_days_selector_value(suggested[CONF_FORECAST_DAYS])
     suggested[CONF_UPDATE_INTERVAL] = _update_interval_selector_value(suggested[CONF_UPDATE_INTERVAL])
     return suggested
-
-
-def _reconfigure_schema() -> vol.Schema:
-    """Return the schema that intentionally excludes the persisted API key."""
-    return vol.Schema(
-        {
-            vol.Required(CONF_LOCATION_NAME): selector.TextSelector(),
-            vol.Required(CONF_LATITUDE): vol.Coerce(float),
-            vol.Required(CONF_LONGITUDE): vol.Coerce(float),
-            vol.Required(CONF_TIME_ZONE): selector.TextSelector(),
-        }
-    )
 
 
 def _options_schema() -> vol.Schema:

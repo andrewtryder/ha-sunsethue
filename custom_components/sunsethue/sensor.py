@@ -10,8 +10,9 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorEntityDescription,
 )
-from homeassistant.const import DEGREE, PERCENTAGE
+from homeassistant.const import DEGREE, PERCENTAGE, Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
@@ -111,9 +112,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up quality, quality-text, and optional detailed forecast sensors."""
-    del hass
     coordinator = entry.runtime_data.coordinator
     keys = _configured_keys(entry)
+    _async_cleanup_orphaned_entities(hass, entry, keys)
     entities: list[SensorEntity] = []
     for key in keys:
         entities.append(SunsetHueQualitySensor(coordinator, entry, key))
@@ -141,6 +142,42 @@ def _configured_keys(entry: SunsetHueConfigEntry) -> list[ForecastKey]:
         for day_offset in range(start_offset, start_offset + days)
         for event_type in events
     ]
+
+
+def _unique_id_for(entry_id: str, key: ForecastKey, suffix: str) -> str:
+    """Build a stable sensor unique ID for one forecast field."""
+    return f"{entry_id}_{key.event_type.value}_{key.day_offset}_{suffix}"
+
+
+def _valid_unique_ids(entry: SunsetHueConfigEntry, keys: list[ForecastKey]) -> set[str]:
+    """Return every unique ID currently represented by the entry options."""
+    unique_ids = {
+        _unique_id_for(entry.entry_id, key, suffix)
+        for key in keys
+        for suffix in (QUALITY_DESCRIPTION.key, QUALITY_TEXT_DESCRIPTION.key)
+    }
+    if entry.options.get(CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES):
+        unique_ids.update(
+            _unique_id_for(entry.entry_id, key, description.key)
+            for key in keys
+            for description, _ in _DETAILED_DESCRIPTIONS
+        )
+    return unique_ids
+
+
+def _async_cleanup_orphaned_entities(
+    hass: HomeAssistant,
+    entry: SunsetHueConfigEntry,
+    keys: list[ForecastKey],
+) -> None:
+    """Remove registry rows for sensors no longer enabled by options."""
+    registry = er.async_get(hass)
+    valid_unique_ids = _valid_unique_ids(entry, keys)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if entity_entry.domain != Platform.SENSOR:
+            continue
+        if entity_entry.unique_id not in valid_unique_ids:
+            registry.async_remove(entity_entry.entity_id)
 
 
 def _window_value(window: MagicHourWindow | None, name: str) -> datetime | None:
@@ -206,7 +243,7 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
     ) -> None:
         """Initialize the quality sensor."""
         super().__init__(coordinator, entry, key)
-        self._attr_unique_id = f"{entry.entry_id}_{key.event_type.value}_{key.day_offset}_quality"
+        self._attr_unique_id = _unique_id_for(entry.entry_id, key, QUALITY_DESCRIPTION.key)
 
     @property
     def available(self) -> bool:
@@ -236,7 +273,7 @@ class SunsetHueQualityTextSensor(_SunsetHueForecastSensor):
     ) -> None:
         """Initialize the quality-text sensor."""
         super().__init__(coordinator, entry, key)
-        self._attr_unique_id = f"{entry.entry_id}_{key.event_type.value}_{key.day_offset}_quality_text"
+        self._attr_unique_id = _unique_id_for(entry.entry_id, key, QUALITY_TEXT_DESCRIPTION.key)
 
     @property
     def available(self) -> bool:
@@ -271,7 +308,7 @@ class SunsetHueDetailedSensor(_SunsetHueForecastSensor):
         super().__init__(coordinator, entry, key)
         self.entity_description = description
         self._value_getter = value_getter
-        self._attr_unique_id = f"{entry.entry_id}_{key.event_type.value}_{key.day_offset}_{description.key}"
+        self._attr_unique_id = _unique_id_for(entry.entry_id, key, description.key)
 
     @property
     def available(self) -> bool:
