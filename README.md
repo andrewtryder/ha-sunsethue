@@ -145,7 +145,8 @@ the same branch before merging it.
 Use Conventional Commits for every commit. Valid types include `feat`, `fix`,
 `docs`, `test`, `refactor`, `ci`, and `chore`; use `feat!:` or a breaking-change
 footer for a major release. `feat:` produces a minor release and `fix:` a patch
-release. Run `npm ci` followed by `npm run commitlint -- --from <base-sha> --to
+release. `docs:`, `chore:`, `ci:`, `test:`, and `refactor:` do not open a release.
+Run `npm ci` followed by `npm run commitlint -- --from <base-sha> --to
 HEAD` before opening a pull request.
 
 Consult Sunsethue's current developer page and terms for pricing, quotas, and
