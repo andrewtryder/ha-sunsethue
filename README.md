@@ -7,6 +7,8 @@ reviewed, endorsed, nor supported by Home Assistant or Sunsethue.
 
 [![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-sunsethue&category=integration)
 
+![SunsetHue service page in Home Assistant showing quality sensors and activity](docs/images/home-assistant-service.png)
+
 ## Requirements
 
 - Home Assistant 2026.3.0 or newer (Python 3.14 or newer).
