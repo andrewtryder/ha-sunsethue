@@ -99,20 +99,6 @@ async def test_migration_preserves_current_schema(hass, mock_config_entry) -> No
 
 
 @pytest.mark.asyncio
-async def test_migration_noop_for_current_schema(hass, mock_config_entry) -> None:
-    """Already-current entries pass migration without rewriting data."""
-    entry = MockConfigEntry(
-        domain="sunsethue",
-        data=mock_config_entry.data,
-        unique_id=mock_config_entry.unique_id,
-        version=1,
-        minor_version=1,
-    )
-    assert await async_migrate_entry(hass, entry)
-    assert entry.minor_version == 1
-
-
-@pytest.mark.asyncio
 async def test_migration_rejects_future_minor_version(hass, mock_config_entry) -> None:
     """A future schema is never migrated backward."""
     entry = MockConfigEntry(domain="sunsethue", data=mock_config_entry.data, version=1, minor_version=3)

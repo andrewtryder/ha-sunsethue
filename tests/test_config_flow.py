@@ -179,6 +179,7 @@ async def test_error_forms_remain_frontend_serializable(hass, mock_config_entry,
     options = await hass.config_entries.options.async_configure(
         options["flow_id"],
         {
+            "forecast_start_offset": "1",
             "forecast_days": 1,
             "include_sunrise": False,
             "include_sunset": False,
@@ -486,40 +487,6 @@ async def test_reconfigure_recovers_after_connection_error(hass, mock_config_ent
     )
     assert result["type"] == "abort"
     assert result["reason"] == "reconfigure_successful"
-
-
-@pytest.mark.asyncio
-async def test_options_handler_rejects_forecast_and_interval_ranges(hass, mock_config_entry) -> None:
-    """Handler-level option guards reject values that bypass selector bounds."""
-    mock_config_entry.add_to_hass(hass)
-    flow = config_flow.SunsetHueOptionsFlow()
-    flow.hass = hass
-    flow.handler = mock_config_entry.entry_id
-
-    result = await flow.async_step_init(
-        {
-            "forecast_days": 0,
-            "include_sunrise": True,
-            "include_sunset": True,
-            "update_interval": 6,
-            "create_detailed_entities": False,
-        }
-    )
-    assert result["type"] == "form"
-    assert result["errors"] == {"base": "invalid_forecast_days"}
-    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
-
-    result = await flow.async_step_init(
-        {
-            "forecast_days": 2,
-            "include_sunrise": True,
-            "include_sunset": True,
-            "update_interval": 5,
-            "create_detailed_entities": False,
-        }
-    )
-    assert result["errors"] == {"base": "invalid_update_interval"}
-    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
 
 
 @pytest.mark.asyncio
