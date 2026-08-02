@@ -10,9 +10,12 @@ installation. Entity IDs follow Home Assistant naming from the location title
 and translated sensor names, for example:
 
 ```text
-sensor.sandown_nh_tomorrow_sunset_quality
-sensor.sandown_nh_tomorrow_sunset_quality_text
+sensor.sandown_nh_today_sunset_quality
+sensor.sandown_nh_today_sunset_quality_text
 ```
+
+New installations default to today's forecast. Entity IDs include the selected
+forecast day (`today`, `tomorrow`, or `day_after_tomorrow`).
 
 When detailed entities are disabled, event time, cloud cover, direction, and
 magic-hour boundaries remain available as attributes on the quality and
@@ -29,7 +32,7 @@ example below for a colored pill.
 type: vertical-stack
 cards:
   - type: entities
-    title: Tomorrow's sunset forecast
+    title: Today's sunset forecast
     entities:
       - entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
         name: Quality
@@ -108,7 +111,7 @@ cards:
           {{ colors.get(quality, 'grey') }}
 
   - type: entities
-    title: Tomorrow's sunset forecast
+    title: Today's sunset forecast
     entities:
       - sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
       - sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY

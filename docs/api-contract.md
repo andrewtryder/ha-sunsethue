@@ -22,9 +22,12 @@ plus observed production error responses.
 Config-flow and reauth validation send `forecast=false` for the user-selected
 forecast date so setup can confirm the API key, connectivity, and parameters
 without spending model-data credits. Coordinator refresh sends `forecast=true`
-because quality sensors need model fields. The integration never calls `/usage`
-or any other endpoint. A response costs 1 credit when `model_data` is false and
-5 credits when it is true, per the Postman documentation.
+because quality sensors need model fields. New installations default to one
+local date (today) with sunrise and sunset enabled, so each refresh uses two
+`forecast=true` requests unless the user expands the window in options. The
+integration never calls `/usage` or any other endpoint. A response costs 1
+credit when `model_data` is false and 5 credits when it is true, per the
+Postman documentation.
 
 ## Response
 

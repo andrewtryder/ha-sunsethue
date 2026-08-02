@@ -1,7 +1,7 @@
 type: vertical-stack
 cards:
   - type: entities
-    title: Tomorrow's sunset forecast
+    title: Today's sunset forecast
     entities:
       - entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
         name: Quality

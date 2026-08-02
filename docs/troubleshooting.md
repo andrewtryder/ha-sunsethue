@@ -49,9 +49,22 @@ quality data. New installations default to today only (two requests when
 both sunrise and sunset are enabled). Expand the forecast window carefully in
 options. Wait for the quota to reset or increase allowance in the portal.
 
+**Existing install after an upgrade:** entries that already had forecast options
+keep their previous window through migration. Older entries without explicit
+options may keep the prior three-day window (today through day after tomorrow).
+Review the entry options if your API usage is higher than expected after an
+upgrade.
+
 **Location or time wrong:** reconfigure the entry with WGS84 decimal coordinates
 and an IANA time zone such as `Europe/Amsterdam`. Dates are requested in that
 location's local time.
 
+**Removing the integration:** remove each config entry from its integration
+page, then uninstall through HACS or delete `custom_components/sunsethue`.
+Removing an entry does not alter your SunsetHue account or API key. If an API
+key is revoked or expires, Home Assistant starts reauthentication.
+
 **Need support:** download the integration diagnostics and review them before
 sharing. Diagnostics deliberately round coordinates and redact credentials.
+Never include an API key, exact address, or unreviewed diagnostics in a GitHub
+issue.
