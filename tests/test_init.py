@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE
 from homeassistant.exceptions import ConfigEntryError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -15,6 +16,7 @@ from custom_components.sunsethue.const import (
     CONF_FORECAST_DAYS,
     CONF_FORECAST_START_OFFSET,
     CONF_LOCATION_ID,
+    DOMAIN,
     LEGACY_FORECAST_DAYS,
     LEGACY_FORECAST_START_OFFSET,
 )
@@ -106,9 +108,85 @@ async def test_migration_rejects_future_minor_version(hass, mock_config_entry) -
 
 
 @pytest.mark.asyncio
-async def test_update_listener_reloads_entry(hass, mock_config_entry, monkeypatch) -> None:
-    """Options and reconfigure changes reload the integration exactly once."""
-    reload = AsyncMock()
-    monkeypatch.setattr(hass.config_entries, "async_reload", reload)
+async def test_update_listener_schedules_reload(hass, mock_config_entry, monkeypatch) -> None:
+    """Options and reconfigure changes schedule exactly one reload."""
+    schedule_reload = MagicMock()
+    monkeypatch.setattr(hass.config_entries, "async_schedule_reload", schedule_reload)
     await _async_update_listener(hass, mock_config_entry)
-    reload.assert_awaited_once_with(mock_config_entry.entry_id)
+    schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "user_input", "abort_reason"),
+    [
+        (
+            "options",
+            {
+                "forecast_start_offset": "0",
+                "forecast_days": "1",
+                "include_sunrise": True,
+                "include_sunset": True,
+                "update_interval": "6",
+                "create_detailed_entities": False,
+            },
+            None,
+        ),
+        (
+            "reconfigure",
+            {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "UTC"},
+            "reconfigure_successful",
+        ),
+        (
+            "reauth",
+            {"api_key": "new-key"},
+            "reauth_successful",
+        ),
+    ],
+)
+async def test_entry_updates_schedule_exactly_one_reload(
+    hass,
+    mock_config_entry,
+    aioclient_mock,
+    event_full,
+    monkeypatch,
+    action,
+    user_input,
+    abort_reason,
+) -> None:
+    """A live update listener owns reload for options, reconfigure, and reauth."""
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(mock_config_entry, options={"include_sunrise": False})
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    schedule_reload = MagicMock()
+    reload = MagicMock()
+    monkeypatch.setattr(hass.config_entries, "async_schedule_reload", schedule_reload)
+    monkeypatch.setattr(hass.config_entries, "async_reload", reload)
+
+    if action == "options":
+        result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+        result = await hass.config_entries.options.async_configure(result["flow_id"], user_input)
+        assert result["type"] == "create_entry"
+    elif action == "reconfigure":
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id},
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
+        assert result["type"] == "abort"
+        assert result["reason"] == abort_reason
+    else:
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": SOURCE_REAUTH, "entry_id": mock_config_entry.entry_id},
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], user_input)
+        assert result["type"] == "abort"
+        assert result["reason"] == abort_reason
+
+    await hass.async_block_till_done()
+    schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
+    reload.assert_not_called()

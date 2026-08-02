@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -22,13 +23,34 @@ from custom_components.sunsethue.api import (
 )
 from custom_components.sunsethue.config_flow import (
     SunsetHueConfigFlow,
+    _async_reconfigure_schema,
+    _async_user_schema,
     _async_validate_connection,
+    _format_utc_offset,
     _normalize_coordinate,
     _options_schema,
-    _reconfigure_schema,
+    _time_zone_names,
+    _time_zone_options,
     _valid_time_zone,
 )
-from custom_components.sunsethue.const import API_BASE_URL, CONF_API_KEY, CONF_LOCATION_ID, DOMAIN
+from custom_components.sunsethue.const import API_BASE_URL, CONF_API_KEY, CONF_LOCATION_ID, CONF_TIME_ZONE, DOMAIN
+
+
+def _suggested_values(schema) -> dict:
+    """Return suggested values attached to a form schema."""
+    return {
+        key.schema: key.description["suggested_value"]
+        for key in schema.schema
+        if key.description and "suggested_value" in key.description
+    }
+
+
+def _time_zone_selector_options(schema) -> list[dict[str, str]]:
+    """Return the labeled options from the time-zone SelectSelector."""
+    for key, validator in schema.schema.items():
+        if key.schema == CONF_TIME_ZONE:
+            return list(validator.config["options"])
+    raise AssertionError("time_zone selector missing from schema")
 
 
 def test_normalized_coordinates_are_stable() -> None:
@@ -36,14 +58,60 @@ def test_normalized_coordinates_are_stable() -> None:
     assert _normalize_coordinate(1) == _normalize_coordinate(1.0000001)
 
 
-def test_invalid_time_zone_is_rejected() -> None:
-    """Only IANA time zone identifiers are persisted."""
-    try:
-        _valid_time_zone("not/a-time-zone")
-    except vol.Invalid:
-        pass
-    else:
-        raise AssertionError("invalid time zone was accepted")
+@pytest.mark.parametrize(
+    "time_zone",
+    ["", "/etc/passwd", "../UTC", "not/a-time-zone"],
+)
+def test_invalid_time_zone_is_rejected(time_zone: str) -> None:
+    """Malformed and unknown zone keys raise a form-friendly validation error."""
+    with pytest.raises(vol.Invalid):
+        _valid_time_zone(time_zone)
+
+
+@pytest.mark.parametrize(
+    "time_zone",
+    ["", "/etc/passwd", "../UTC", "not/a-time-zone"],
+)
+def test_normalize_user_input_rejects_malformed_time_zones(time_zone: str) -> None:
+    """Direct submissions still map unknown zones to invalid_time_zone."""
+    flow = SunsetHueConfigFlow()
+    errors: dict[str, str] = {}
+    assert (
+        flow._normalize_user_input(
+            {
+                "location_name": "Home",
+                "api_key": "key",
+                "latitude": 40.7128,
+                "longitude": -74.006,
+                "time_zone": time_zone,
+            },
+            errors,
+        )
+        is None
+    )
+    assert errors == {"base": "invalid_time_zone"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "time_zone",
+    ["", "/etc/passwd", "../UTC", "not/a-time-zone"],
+)
+async def test_user_flow_rejects_unknown_time_zone_options(hass, time_zone: str) -> None:
+    """SelectSelector rejects zone keys that are not in the dropdown."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "location_name": "Home",
+                "latitude": 40.7128,
+                "longitude": -74.006,
+                "time_zone": time_zone,
+                "api_key": "test-key",
+                "forecast_start_offset": "0",
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -53,6 +121,87 @@ async def test_user_form_schema_is_frontend_serializable(hass) -> None:
     assert result["type"] == "form"
     serialized = convert(result["data_schema"], custom_serializer=cv.custom_serializer)
     assert serialized
+
+
+@pytest.mark.asyncio
+async def test_time_zone_dropdown_includes_iana_zones_with_offset_labels(hass) -> None:
+    """The dropdown stores IANA keys and shows the current offset in labels."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    options = _time_zone_selector_options(result["data_schema"])
+    by_value = {option["value"]: option["label"] for option in options}
+    assert "UTC" in by_value
+    assert "America/New_York" in by_value
+    assert by_value["America/New_York"].startswith("(UTC")
+    assert by_value["America/New_York"].endswith("America/New York")
+    assert "UTC-04:00" not in by_value
+    assert "UTC-05:00" not in by_value
+
+
+@pytest.mark.asyncio
+async def test_user_flow_stores_iana_time_zone(hass, aioclient_mock, event_full) -> None:
+    """Successful setup persists America/New_York, never a fixed offset."""
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "time_zone": "America/New_York",
+            "forecast_start_offset": "0",
+        },
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_TIME_ZONE] == "America/New_York"
+    assert result["data"][CONF_TIME_ZONE] != "UTC-04:00"
+
+
+@pytest.mark.parametrize(
+    ("when", "expected_offset"),
+    [
+        (datetime(2026, 7, 15, 12, tzinfo=UTC), "UTC-04:00"),
+        (datetime(2026, 1, 15, 12, tzinfo=UTC), "UTC-05:00"),
+    ],
+)
+def test_time_zone_option_labels_reflect_dst(when: datetime, expected_offset: str) -> None:
+    """Offset labels follow IANA daylight-saving transitions."""
+    _time_zone_names.cache_clear()
+    options = {option["value"]: option["label"] for option in _time_zone_options(when)}
+    assert options["America/New_York"] == f"({expected_offset} now) America/New York"
+
+
+def test_format_utc_offset_handles_zero_and_missing() -> None:
+    """Zero offsets stay signed while missing offsets collapse to UTC."""
+    assert _format_utc_offset(None) == "UTC"
+    assert _format_utc_offset(datetime(2026, 1, 1, tzinfo=UTC).utcoffset()) == "UTC+00:00"
+
+
+@pytest.mark.asyncio
+async def test_time_zone_names_are_warmed_via_executor_and_cached(hass, monkeypatch) -> None:
+    """available_timezones work runs in the executor and the name set is cached."""
+    _time_zone_names.cache_clear()
+    real_add_executor_job = hass.async_add_executor_job
+    executor_targets: list[object] = []
+
+    async def tracking_add_executor_job(func, *args):
+        executor_targets.append(func)
+        return await real_add_executor_job(func, *args)
+
+    monkeypatch.setattr(hass, "async_add_executor_job", tracking_add_executor_job)
+
+    await _async_user_schema(hass)
+    assert executor_targets == [_time_zone_names]
+    after_first = _time_zone_names.cache_info()
+    assert after_first.misses == 1
+    assert after_first.hits >= 1
+
+    await _async_reconfigure_schema(hass)
+    assert executor_targets == [_time_zone_names, _time_zone_names]
+    after_second = _time_zone_names.cache_info()
+    assert after_second.misses == 1
+    assert after_second.hits > after_first.hits
 
 
 @pytest.mark.asyncio
@@ -83,19 +232,6 @@ async def test_all_config_flow_forms_are_frontend_serializable(hass, mock_config
 async def test_error_forms_remain_frontend_serializable(hass, mock_config_entry, aioclient_mock) -> None:
     """Forms re-shown after validation failures stay frontend-serializable."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            "location_name": "Home",
-            "api_key": "test-key",
-            "latitude": 1,
-            "longitude": 2,
-            "time_zone": "not/a-time-zone",
-        },
-    )
-    assert result["errors"] == {"base": "invalid_time_zone"}
-    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
-
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -193,20 +329,19 @@ async def test_error_forms_remain_frontend_serializable(hass, mock_config_entry,
 
 @pytest.mark.asyncio
 async def test_user_flow_recovers_after_invalid_time_zone(hass, aioclient_mock, event_full) -> None:
-    """Invalid IANA zones are rejected, then a corrected value creates the entry."""
+    """Unknown dropdown values are rejected, then a valid IANA zone creates the entry."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            "location_name": "Home",
-            "api_key": "test-key",
-            "latitude": 40.7128,
-            "longitude": -74.006,
-            "time_zone": "Not/AZone",
-        },
-    )
-    assert result["errors"] == {"base": "invalid_time_zone"}
-    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "location_name": "Home",
+                "api_key": "test-key",
+                "latitude": 40.7128,
+                "longitude": -74.006,
+                "time_zone": "Not/AZone",
+            },
+        )
     aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -219,6 +354,7 @@ async def test_user_flow_recovers_after_invalid_time_zone(hass, aioclient_mock, 
         },
     )
     assert result["type"] == "create_entry"
+    assert result["data"][CONF_TIME_ZONE] == "America/New_York"
 
 
 @pytest.mark.asyncio
@@ -253,19 +389,17 @@ async def test_user_flow_uses_home_assistant_location_defaults(hass) -> None:
     hass.config.location_name = "Configured home"
     hass.config.latitude = 12.34
     hass.config.longitude = 56.78
-    hass.config.time_zone = "UTC"
+    hass.config.time_zone = "America/New_York"
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
-    defaults = {
-        key.schema: key.description["suggested_value"]
-        for key in result["data_schema"].schema
-        if key.description and "suggested_value" in key.description
-    }
+    defaults = _suggested_values(result["data_schema"])
     assert {key: defaults[key] for key in ("location_name", "latitude", "longitude", "time_zone")} == {
         "location_name": "Configured home",
         "latitude": 12.34,
         "longitude": 56.78,
-        "time_zone": "UTC",
+        "time_zone": "America/New_York",
     }
+    options = _time_zone_selector_options(result["data_schema"])
+    assert any(option["value"] == "America/New_York" for option in options)
 
 
 @pytest.mark.asyncio
@@ -450,18 +584,42 @@ async def test_reconfigure_rejects_another_entry_location(hass, mock_config_entr
 
 @pytest.mark.asyncio
 async def test_reconfigure_keeps_form_for_invalid_time_zone(hass, mock_config_entry) -> None:
-    """Invalid reconfigure input returns a serializable form without API calls."""
+    """Unknown reconfigure zone keys are rejected by the dropdown schema."""
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
     )
+    suggested = _suggested_values(result["data_schema"])
+    assert suggested[CONF_TIME_ZONE] == mock_config_entry.data[CONF_TIME_ZONE]
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "Not/AZone"},
+        )
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_preserves_stored_iana_zone(hass, mock_config_entry, aioclient_mock, event_full) -> None:
+    """Reconfigure keeps the saved IANA zone unless the user picks another."""
+    mock_config_entry.add_to_hass(hass)
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
+    )
+    assert _suggested_values(result["data_schema"])[CONF_TIME_ZONE] == "America/New_York"
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
-        {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "Not/AZone"},
+        {
+            "location_name": "Office",
+            "latitude": 41,
+            "longitude": -74,
+            "time_zone": "America/New_York",
+        },
     )
-    assert result["type"] == "form"
-    assert result["errors"] == {"base": "invalid_time_zone"}
-    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+    assert result["type"] == "abort"
+    assert result["reason"] == "reconfigure_successful"
+    assert mock_config_entry.data[CONF_TIME_ZONE] == "America/New_York"
 
 
 @pytest.mark.asyncio
@@ -553,9 +711,11 @@ async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry,
     assert result["type"] == "create_entry"
 
 
-def test_config_schemas_apply_expected_types() -> None:
+@pytest.mark.asyncio
+async def test_config_schemas_apply_expected_types(hass) -> None:
     """Reconfigure omits credentials while options retain only supported fields."""
-    assert "api_key" not in _reconfigure_schema().schema
+    reconfigure = await _async_reconfigure_schema(hass)
+    assert CONF_API_KEY not in {key.schema for key in reconfigure.schema}
     options = _options_schema()(
         {
             "forecast_start_offset": "1",

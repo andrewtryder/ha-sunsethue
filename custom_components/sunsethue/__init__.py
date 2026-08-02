@@ -60,8 +60,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) -
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: SunsetHueConfigEntry) -> None:
-    """Reload after changing options or reconfigured data."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Schedule a reload after options or data changes."""
+    hass.config_entries.async_schedule_reload(entry.entry_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) -> bool:

@@ -6,9 +6,19 @@ from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
 import pytest
+from homeassistant.const import Platform
+from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunsethue.const import SunsetHueEventType
+from custom_components.sunsethue.const import (
+    CONF_CREATE_DETAILED_ENTITIES,
+    CONF_FORECAST_DAYS,
+    CONF_FORECAST_START_OFFSET,
+    CONF_INCLUDE_SUNRISE,
+    CONF_INCLUDE_SUNSET,
+    DOMAIN,
+    SunsetHueEventType,
+)
 from custom_components.sunsethue.models import (
     Coordinates,
     EventForecast,
@@ -20,8 +30,20 @@ from custom_components.sunsethue.sensor import (
     SunsetHueDetailedSensor,
     SunsetHueQualitySensor,
     _configured_keys,
+    _valid_unique_ids,
     async_setup_entry,
 )
+
+
+def _broad_options() -> dict[str, object]:
+    """Return a wide inventory used as the starting options state."""
+    return {
+        CONF_FORECAST_START_OFFSET: 0,
+        CONF_FORECAST_DAYS: 3,
+        CONF_INCLUDE_SUNRISE: True,
+        CONF_INCLUDE_SUNSET: True,
+        CONF_CREATE_DETAILED_ENTITIES: True,
+    }
 
 
 def test_configured_keys_default_today_only(mock_config_entry) -> None:
@@ -137,8 +159,133 @@ async def test_entity_setup_includes_opt_in_detail_entities(hass, mock_config_en
         data=mock_config_entry.data,
         options={"forecast_days": 1, "create_detailed_entities": True},
     )
+    entry.add_to_hass(hass)
     entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(device_info=None))
     entities = []
     await async_setup_entry(hass, entry, entities.extend)
     assert len(entities) == 18
     assert sum(1 for entity in entities if entity.unique_id.endswith("_quality_text")) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("shrunk_options", "expected_suffix_fragment"),
+    [
+        (
+            {
+                CONF_FORECAST_START_OFFSET: 0,
+                CONF_FORECAST_DAYS: 1,
+                CONF_INCLUDE_SUNRISE: True,
+                CONF_INCLUDE_SUNSET: True,
+                CONF_CREATE_DETAILED_ENTITIES: True,
+            },
+            "_2_",
+        ),
+        (
+            {
+                CONF_FORECAST_START_OFFSET: 0,
+                CONF_FORECAST_DAYS: 3,
+                CONF_INCLUDE_SUNRISE: False,
+                CONF_INCLUDE_SUNSET: True,
+                CONF_CREATE_DETAILED_ENTITIES: True,
+            },
+            "_sunrise_",
+        ),
+        (
+            {
+                CONF_FORECAST_START_OFFSET: 0,
+                CONF_FORECAST_DAYS: 3,
+                CONF_INCLUDE_SUNRISE: True,
+                CONF_INCLUDE_SUNSET: True,
+                CONF_CREATE_DETAILED_ENTITIES: False,
+            },
+            "_event_time",
+        ),
+    ],
+)
+async def test_shrinking_options_removes_stale_registry_entries(
+    hass,
+    mock_config_entry,
+    shrunk_options,
+    expected_suffix_fragment,
+) -> None:
+    """Sensors disabled by options are removed from the entity registry."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=mock_config_entry.title,
+        data=mock_config_entry.data,
+        options=_broad_options(),
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    broad_ids = _valid_unique_ids(entry, _configured_keys(entry))
+    for unique_id in broad_ids:
+        registry.async_get_or_create(Platform.SENSOR, DOMAIN, unique_id, config_entry=entry)
+    # A non-sensor registry row must never be pruned by sensor setup.
+    registry.async_get_or_create("binary_sensor", DOMAIN, f"{entry.entry_id}_keep", config_entry=entry)
+
+    hass.config_entries.async_update_entry(entry, options=shrunk_options)
+    entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(device_info=None))
+    entities: list[object] = []
+    await async_setup_entry(hass, entry, entities.extend)
+
+    remaining = {
+        item.unique_id
+        for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if item.domain == Platform.SENSOR
+    }
+    assert remaining == _valid_unique_ids(entry, _configured_keys(entry))
+    assert remaining == {entity.unique_id for entity in entities}
+    assert all(expected_suffix_fragment not in unique_id for unique_id in remaining)
+    assert registry.async_get_entity_id("binary_sensor", DOMAIN, f"{entry.entry_id}_keep")
+
+
+@pytest.mark.asyncio
+async def test_expanding_options_recreates_previously_removed_entities(hass, mock_config_entry) -> None:
+    """Re-enabling a wider window creates the expected unique IDs again."""
+    narrow_options = {
+        CONF_FORECAST_START_OFFSET: 0,
+        CONF_FORECAST_DAYS: 1,
+        CONF_INCLUDE_SUNRISE: True,
+        CONF_INCLUDE_SUNSET: True,
+        CONF_CREATE_DETAILED_ENTITIES: False,
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=mock_config_entry.title,
+        data=mock_config_entry.data,
+        options=narrow_options,
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    narrow_ids = _valid_unique_ids(entry, _configured_keys(entry))
+    for unique_id in narrow_ids:
+        registry.async_get_or_create(Platform.SENSOR, DOMAIN, unique_id, config_entry=entry)
+
+    orphan_id = f"{entry.entry_id}_sunset_2_quality"
+    registry.async_get_or_create(Platform.SENSOR, DOMAIN, orphan_id, config_entry=entry)
+
+    entry.runtime_data = SimpleNamespace(coordinator=SimpleNamespace(device_info=None))
+    await async_setup_entry(hass, entry, [].extend)
+    assert registry.async_get_entity_id(Platform.SENSOR, DOMAIN, orphan_id) is None
+    assert {
+        item.unique_id
+        for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if item.domain == Platform.SENSOR
+    } == narrow_ids
+
+    hass.config_entries.async_update_entry(entry, options=_broad_options())
+    entities: list[object] = []
+    await async_setup_entry(hass, entry, entities.extend)
+
+    # Direct async_setup_entry creates entity objects but does not register them.
+    # Orphans stay removed until a full platform add re-registers them.
+    remaining = {
+        item.unique_id
+        for item in er.async_entries_for_config_entry(registry, entry.entry_id)
+        if item.domain == Platform.SENSOR
+    }
+    assert remaining == narrow_ids
+    assert orphan_id not in remaining
+    assert {entity.unique_id for entity in entities} == _valid_unique_ids(entry, _configured_keys(entry))
+    assert any(entity.unique_id.endswith("_sunset_2_quality") for entity in entities)
