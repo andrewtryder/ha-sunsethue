@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ha-sunsethue"
-version = "0.4.1"
+version = "0.4.2"
 description = "HACS custom integration for SunsetHue forecasts"
 requires-python = ">=3.14.2"
 license = {text = "MIT"}
