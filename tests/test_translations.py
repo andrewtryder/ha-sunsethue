@@ -45,8 +45,7 @@ async def test_loaded_translations_resolve_forecast_labels(hass) -> None:
     options = await async_get_translations(hass, "en", "options", {DOMAIN})
     assert options.get(f"component.{DOMAIN}.options.step.init.data.forecast_start_offset") == "First forecast day"
     assert (
-        options.get(f"component.{DOMAIN}.options.step.init.data.forecast_days")
-        == "Number of consecutive forecast days"
+        options.get(f"component.{DOMAIN}.options.step.init.data.forecast_days") == "Number of consecutive forecast days"
     )
     assert "Today is the default" in (
         options.get(f"component.{DOMAIN}.options.step.init.data_description.forecast_start_offset") or ""
