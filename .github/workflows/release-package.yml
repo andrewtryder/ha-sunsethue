@@ -15,10 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Verify version consistency
-        run: |
-          version="$(jq -r .version custom_components/sunsethue/manifest.json)"
-          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          test "$(awk -F '"' '/^VERSION = / {print $2}' custom_components/sunsethue/const.py)" = "$version"
+        run: python scripts/verify_release_metadata.py
       - name: Build and inspect integration archive
         run: |
           mkdir -p dist

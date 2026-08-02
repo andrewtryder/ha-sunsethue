@@ -14,12 +14,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - run: uv python install 3.14
-      - run: uv venv --python 3.14
-      - name: Install minimum Home Assistant
-        if: matrix.homeassistant != 'latest'
-        run: uv pip install --python .venv/bin/python "homeassistant==${{ matrix.homeassistant }}" pytest-homeassistant-custom-component pytest-cov
+      - run: uv sync --group dev --locked
       - name: Install current Home Assistant
         if: matrix.homeassistant == 'latest'
-        run: uv pip install --python .venv/bin/python homeassistant pytest-homeassistant-custom-component pytest-cov
+        run: >-
+          uv pip install --python .venv/bin/python --upgrade homeassistant
+          pytest-homeassistant-custom-component pytest-cov
       - run: .venv/bin/pytest

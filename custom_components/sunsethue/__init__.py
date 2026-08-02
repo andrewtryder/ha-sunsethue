@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 from uuid import uuid4
 
 from awesomeversion import AwesomeVersion
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
@@ -17,20 +14,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import SunsetHueClient
 from .const import CONF_API_KEY, CONF_LOCATION_ID, MIN_HA_VERSION, PLATFORMS
 from .coordinator import SunsetHueDataUpdateCoordinator
+from .types import SunsetHueConfigEntry, SunsetHueRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(slots=True)
-class SunsetHueRuntimeData:
-    """Objects retained for one loaded config entry."""
-
-    client: SunsetHueClient
-    coordinator: SunsetHueDataUpdateCoordinator
-    cancel_midnight_refresh: Callable[[], None]
-
-
-type SunsetHueConfigEntry = ConfigEntry[SunsetHueRuntimeData]
 
 
 def is_supported_home_assistant_version(version: str = HA_VERSION) -> bool:
