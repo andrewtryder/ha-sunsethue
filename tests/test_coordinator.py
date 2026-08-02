@@ -27,8 +27,18 @@ from custom_components.sunsethue.const import (
     SunsetHueEventType,
     update_interval_from_options,
 )
-from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator
+from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator, _iter_sunsethue_errors
 from tests.helpers import FakeSunsetHueClient, make_forecast
+
+
+def test_iter_sunsethue_errors_flattens_nested_groups() -> None:
+    """Nested TaskGroup failures still surface the original client error."""
+    nested = ExceptionGroup("inner", [SunsetHueConnectionError("down")])
+    outer = ExceptionGroup("outer", [nested, RuntimeError("ignored")])
+    errors = _iter_sunsethue_errors(outer)
+    assert len(errors) == 1
+    assert isinstance(errors[0], SunsetHueConnectionError)
+    assert str(errors[0]) == "down"
 
 
 @pytest.mark.asyncio

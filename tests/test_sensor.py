@@ -45,6 +45,12 @@ def test_configured_keys_supports_single_event(mock_config_entry) -> None:
         options={"forecast_days": 1, "include_sunrise": False, "include_sunset": True},
     )
     assert _configured_keys(entry) == [ForecastKey(0, SunsetHueEventType.SUNSET)]
+    sunrise_only = MockConfigEntry(
+        domain="sunsethue",
+        data=mock_config_entry.data,
+        options={"forecast_days": 1, "include_sunrise": True, "include_sunset": False},
+    )
+    assert _configured_keys(sunrise_only) == [ForecastKey(0, SunsetHueEventType.SUNRISE)]
 
 
 def test_quality_sensor_converts_percentage_and_attributes(mock_config_entry) -> None:

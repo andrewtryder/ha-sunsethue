@@ -61,6 +61,97 @@ def test_parse_retry_after_rejects_malformed_http_date() -> None:
     assert _parse_retry_after("not a date") is None
 
 
+def test_parse_retry_after_returns_none_for_empty_header() -> None:
+    """Missing Retry-After values leave the coordinator without a delay."""
+    assert _parse_retry_after(None) is None
+    assert _parse_retry_after("") is None
+
+
+@pytest.mark.asyncio
+async def test_client_maps_timeout_error() -> None:
+    """Timeouts become connection failures without leaking credentials."""
+
+    class Response:
+        status = 200
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+
+        async def __aenter__(self):
+            raise TimeoutError
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(SunsetHueConnectionError, match="Timed out"):
+        await SunsetHueClient(Session(), "super-secret").async_get_event(  # type: ignore[arg-type]
+            Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+        )
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_oversized_body_after_read() -> None:
+    """A body larger than the documented limit is rejected after streaming."""
+
+    class Content:
+        async def read(self, size: int) -> bytes:
+            return b"x" * size
+
+    class Response:
+        status = 200
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(SunsetHueInvalidResponseError, match="size limit"):
+        await SunsetHueClient(Session(), "test-key").async_get_event(  # type: ignore[arg-type]
+            Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+        )
+
+
+def test_parser_rejects_empty_required_string(event_full: dict[str, Any]) -> None:
+    """Empty required strings are treated as missing contract fields."""
+    event_full["data"]["type"] = ""
+    with pytest.raises(SunsetHueInvalidResponseError, match="type"):
+        _parse_event_forecast(event_full)
+
+
+def test_parser_rejects_missing_required_number() -> None:
+    """Required numeric fields cannot be omitted when present in the contract path."""
+    from custom_components.sunsethue.api import _required_number
+
+    with pytest.raises(SunsetHueInvalidResponseError, match="quality"):
+        _required_number({"quality": None}, "quality")
+    assert _required_number({"quality": 0.5}, "quality") == 0.5
+
+
+def test_parser_handles_absent_optional_datetime(event_full: dict[str, Any]) -> None:
+    """Absent optional event times remain None without failing the parse."""
+    event_full["data"].pop("time", None)
+    forecast = _parse_event_forecast(event_full)
+    assert forecast.event_time is None
+
+
+def test_parser_rejects_non_string_optional_datetime(event_full: dict[str, Any]) -> None:
+    """Optional datetime fields must be ISO strings when present."""
+    event_full["data"]["time"] = 123
+    with pytest.raises(SunsetHueInvalidResponseError, match="time"):
+        _parse_event_forecast(event_full)
+
+
 def test_parser_rejects_invalid_response_root(event_full: dict[str, Any]) -> None:
     """Only object responses can satisfy the documented API contract."""
     with pytest.raises(SunsetHueInvalidResponseError):

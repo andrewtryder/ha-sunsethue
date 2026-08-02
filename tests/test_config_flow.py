@@ -80,6 +80,147 @@ async def test_all_config_flow_forms_are_frontend_serializable(hass, mock_config
 
 
 @pytest.mark.asyncio
+async def test_error_forms_remain_frontend_serializable(hass, mock_config_entry, aioclient_mock) -> None:
+    """Forms re-shown after validation failures stay frontend-serializable."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 1,
+            "longitude": 2,
+            "time_zone": "not/a-time-zone",
+        },
+    )
+    assert result["errors"] == {"base": "invalid_time_zone"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 91,
+            "longitude": 0,
+            "time_zone": "UTC",
+        },
+    )
+    assert result["errors"] == {"base": "invalid_coordinates"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=401)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "bad-key",
+            "latitude": 1,
+            "longitude": 2,
+            "time_zone": "UTC",
+        },
+    )
+    assert result["errors"] == {"base": "invalid_auth"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=503)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 1,
+            "longitude": 2,
+            "time_zone": "UTC",
+        },
+    )
+    assert result["errors"] == {"base": "cannot_connect"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=429, headers={"Retry-After": "30"})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 1,
+            "longitude": 2,
+            "time_zone": "UTC",
+        },
+    )
+    assert result["errors"] == {"base": "rate_limited"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    mock_config_entry.add_to_hass(hass)
+    reauth = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_REAUTH, "entry_id": mock_config_entry.entry_id}
+    )
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=401)
+    reauth = await hass.config_entries.flow.async_configure(reauth["flow_id"], {"api_key": "bad-key"})
+    assert reauth["errors"] == {"base": "invalid_auth"}
+    convert(reauth["data_schema"], custom_serializer=cv.custom_serializer)
+
+    reconfigure = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
+    )
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=503)
+    reconfigure = await hass.config_entries.flow.async_configure(
+        reconfigure["flow_id"],
+        {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "UTC"},
+    )
+    assert reconfigure["errors"] == {"base": "cannot_connect"}
+    convert(reconfigure["data_schema"], custom_serializer=cv.custom_serializer)
+
+    options = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    options = await hass.config_entries.options.async_configure(
+        options["flow_id"],
+        {
+            "forecast_days": 1,
+            "include_sunrise": False,
+            "include_sunset": False,
+            "update_interval": "6",
+            "create_detailed_entities": False,
+        },
+    )
+    assert options["errors"] == {"base": "no_events_selected"}
+    convert(options["data_schema"], custom_serializer=cv.custom_serializer)
+
+
+@pytest.mark.asyncio
+async def test_user_flow_recovers_after_invalid_time_zone(hass, aioclient_mock, event_full) -> None:
+    """Invalid IANA zones are rejected, then a corrected value creates the entry."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "time_zone": "Not/AZone",
+        },
+    )
+    assert result["errors"] == {"base": "invalid_time_zone"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "location_name": "Home",
+            "api_key": "test-key",
+            "latitude": 40.7128,
+            "longitude": -74.006,
+            "time_zone": "America/New_York",
+        },
+    )
+    assert result["type"] == "create_entry"
+
+
+@pytest.mark.asyncio
 async def test_user_flow_creates_entry(hass, aioclient_mock, event_full) -> None:
     """The UI flow validates a real documented endpoint response."""
     aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
@@ -304,6 +445,81 @@ async def test_reconfigure_rejects_another_entry_location(hass, mock_config_entr
     assert result["errors"] == {"base": "already_configured"}
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_keeps_form_for_invalid_time_zone(hass, mock_config_entry) -> None:
+    """Invalid reconfigure input returns a serializable form without API calls."""
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "Not/AZone"},
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "invalid_time_zone"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_recovers_after_connection_error(hass, mock_config_entry, aioclient_mock, event_full) -> None:
+    """Reconfigure keeps the form after a connection error, then succeeds."""
+    mock_config_entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id}
+    )
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=503)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "UTC"},
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "cannot_connect"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"location_name": "Office", "latitude": 41, "longitude": -74, "time_zone": "UTC"},
+    )
+    assert result["type"] == "abort"
+    assert result["reason"] == "reconfigure_successful"
+
+
+@pytest.mark.asyncio
+async def test_options_handler_rejects_forecast_and_interval_ranges(hass, mock_config_entry) -> None:
+    """Handler-level option guards reject values that bypass selector bounds."""
+    mock_config_entry.add_to_hass(hass)
+    flow = config_flow.SunsetHueOptionsFlow()
+    flow.hass = hass
+    flow.handler = mock_config_entry.entry_id
+
+    result = await flow.async_step_init(
+        {
+            "forecast_days": 0,
+            "include_sunrise": True,
+            "include_sunset": True,
+            "update_interval": 6,
+            "create_detailed_entities": False,
+        }
+    )
+    assert result["type"] == "form"
+    assert result["errors"] == {"base": "invalid_forecast_days"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    result = await flow.async_step_init(
+        {
+            "forecast_days": 2,
+            "include_sunrise": True,
+            "include_sunset": True,
+            "update_interval": 5,
+            "create_detailed_entities": False,
+        }
+    )
+    assert result["errors"] == {"base": "invalid_update_interval"}
+    convert(result["data_schema"], custom_serializer=cv.custom_serializer)
 
 
 @pytest.mark.asyncio
