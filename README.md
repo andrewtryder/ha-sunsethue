@@ -17,9 +17,15 @@ reviewed, endorsed, nor supported by Home Assistant or Sunsethue.
 
 In HACS, add `https://github.com/andrewtryder/ha-sunsethue` as an Integration
 custom repository, install a numbered **SunsetHue** release, then restart Home
-Assistant. Do not install `main` for normal use. For a manual installation,
-copy `custom_components/sunsethue` from a release into
-`<config>/custom_components/sunsethue`, then restart.
+Assistant. Do not install `main` for normal use. HACS installs from the tagged
+repository source using the standard `custom_components/sunsethue` layout; no
+custom release ZIP is required. GitHub may still show automatic *Source code*
+ZIP and tarball links on a release page; those are unrelated to HACS install.
+
+For a manual installation, copy `custom_components/sunsethue` from a release
+into `<config>/custom_components/sunsethue`, then restart. After a correct
+install, `manifest.json` is at
+`<config>/custom_components/sunsethue/manifest.json`.
 
 After the restart, add **SunsetHue** from *Settings → Devices & services → Add
 integration* (not *Devices → Add device*). Supply a display name, API key,
@@ -98,19 +104,21 @@ Report reproducible integration defects through [GitHub Issues](https://github.c
 uv sync --group dev --locked
 uv run --group dev ruff check .
 uv run --group dev ruff format --check .
-uv run --group dev mypy custom_components/sunsethue
+uv run --group dev mypy custom_components/sunsethue scripts
 uv run --group dev mypy --config-file mypy-tests.ini tests/helpers.py
 uv run --group dev pytest
 uv run --group dev pre-commit run --all-files
+python scripts/verify_release_metadata.py
+python scripts/verify_hacs_distribution.py
 ```
 
 The GitHub workflows validate HACS, Hassfest, linting, GitHub Actions syntax,
-and tests against the minimum supported and current stable Home Assistant
-releases. Release Please opens and publishes releases from Conventional Commits,
-updates the integration version, packages `custom_components/sunsethue`, and
-uploads a checksum. Do not create release tags manually. For a Release Please
-PR, run **Refresh release lock** on that release branch, then manually dispatch
-the protected validation workflows on the same branch before merging it.
+source-layout distribution, and tests against the minimum supported and current
+stable Home Assistant releases. Release Please opens and publishes releases from
+Conventional Commits and updates the integration version. Do not create release
+tags manually. For a Release Please PR, run **Refresh release lock** on that
+release branch, then manually dispatch the protected validation workflows on
+the same branch before merging it.
 
 ## Contributing
 
