@@ -37,10 +37,10 @@ CONF_INCLUDE_SUNSET = "include_sunset"
 CONF_UPDATE_INTERVAL = "update_interval"
 CONF_CREATE_DETAILED_ENTITIES = "create_detailed_entities"
 
-# New installations default to tomorrow only (1 date x enabled events).
-DEFAULT_FORECAST_START_OFFSET = 1
+# New installations default to today only (1 date x enabled events).
+DEFAULT_FORECAST_START_OFFSET = 0
 DEFAULT_FORECAST_DAYS = 1
-# Legacy installations without explicit options keep the prior three-day window.
+# Pre-v0.3 installations without explicit options keep the prior three-day window via migration.
 LEGACY_FORECAST_START_OFFSET = 0
 LEGACY_FORECAST_DAYS = 3
 DEFAULT_INCLUDE_SUNRISE = True
@@ -74,41 +74,41 @@ def update_interval_from_options(options: Mapping[str, object]) -> timedelta:
 
 def forecast_start_offset_from_options(options: Mapping[str, object]) -> int:
     """Return the absolute first day offset for the configured forecast window."""
-    value = options.get(CONF_FORECAST_START_OFFSET, LEGACY_FORECAST_START_OFFSET)
+    value = options.get(CONF_FORECAST_START_OFFSET, DEFAULT_FORECAST_START_OFFSET)
     offset: int
     if isinstance(value, bool):
-        return LEGACY_FORECAST_START_OFFSET
+        return DEFAULT_FORECAST_START_OFFSET
     if isinstance(value, int):
         offset = value
     elif isinstance(value, str):
         try:
             offset = int(value)
         except ValueError:
-            return LEGACY_FORECAST_START_OFFSET
+            return DEFAULT_FORECAST_START_OFFSET
     else:
-        return LEGACY_FORECAST_START_OFFSET
+        return DEFAULT_FORECAST_START_OFFSET
     if offset not in VALID_FORECAST_START_OFFSETS:
-        return LEGACY_FORECAST_START_OFFSET
+        return DEFAULT_FORECAST_START_OFFSET
     return offset
 
 
 def forecast_days_from_options(options: Mapping[str, object]) -> int:
     """Return the consecutive day count for the configured forecast window."""
-    value = options.get(CONF_FORECAST_DAYS, LEGACY_FORECAST_DAYS)
+    value = options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS)
     days: int
     if isinstance(value, bool):
-        return LEGACY_FORECAST_DAYS
+        return DEFAULT_FORECAST_DAYS
     if isinstance(value, int):
         days = value
     elif isinstance(value, str):
         try:
             days = int(value)
         except ValueError:
-            return LEGACY_FORECAST_DAYS
+            return DEFAULT_FORECAST_DAYS
     else:
-        return LEGACY_FORECAST_DAYS
+        return DEFAULT_FORECAST_DAYS
     if days < 1 or days > MAX_FORECAST_DAYS:
-        return LEGACY_FORECAST_DAYS
+        return DEFAULT_FORECAST_DAYS
     return days
 
 

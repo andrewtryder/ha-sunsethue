@@ -13,17 +13,17 @@ from custom_components.sunsethue.const import (
 
 
 def test_forecast_option_helpers_and_window_validation() -> None:
-    """Legacy fallbacks and horizon checks stay deterministic."""
+    """Missing or invalid options fall back to today and one day."""
     assert forecast_start_offset_from_options({}) == 0
-    assert forecast_days_from_options({}) == 3
+    assert forecast_days_from_options({}) == 1
     assert forecast_start_offset_from_options({CONF_FORECAST_START_OFFSET: "1"}) == 1
     assert forecast_days_from_options({CONF_FORECAST_DAYS: "2"}) == 2
     assert forecast_start_offset_from_options({CONF_FORECAST_START_OFFSET: "bad"}) == 0
-    assert forecast_days_from_options({CONF_FORECAST_DAYS: True}) == 3
+    assert forecast_days_from_options({CONF_FORECAST_DAYS: True}) == 1
     assert forecast_start_offset_from_options({CONF_FORECAST_START_OFFSET: True}) == 0
-    assert forecast_days_from_options({CONF_FORECAST_DAYS: 9}) == 3
+    assert forecast_days_from_options({CONF_FORECAST_DAYS: 9}) == 1
     assert forecast_start_offset_from_options({CONF_FORECAST_START_OFFSET: 1.5}) == 0
-    assert forecast_days_from_options({CONF_FORECAST_DAYS: "nope"}) == 3
+    assert forecast_days_from_options({CONF_FORECAST_DAYS: "nope"}) == 1
     assert forecast_start_offset_from_options({CONF_FORECAST_START_OFFSET: 9}) == 0
     assert is_valid_forecast_window(0, 3)
     assert is_valid_forecast_window(1, 2)

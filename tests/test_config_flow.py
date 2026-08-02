@@ -180,7 +180,7 @@ async def test_error_forms_remain_frontend_serializable(hass, mock_config_entry,
         options["flow_id"],
         {
             "forecast_start_offset": "1",
-            "forecast_days": 1,
+            "forecast_days": "1",
             "include_sunrise": False,
             "include_sunset": False,
             "update_interval": "6",
@@ -235,7 +235,7 @@ async def test_user_flow_creates_entry(hass, aioclient_mock, event_full) -> None
             "latitude": 40.7128,
             "longitude": -74.006,
             "time_zone": "America/New_York",
-            "forecast_start_offset": "1",
+            "forecast_start_offset": "0",
         },
     )
     assert result["type"] == "create_entry"
@@ -243,7 +243,7 @@ async def test_user_flow_creates_entry(hass, aioclient_mock, event_full) -> None
     assert result["data"]["api_key"] == "test-key"
     assert result["data"][CONF_LOCATION_ID]
     assert CONF_API_KEY not in result.get("options", {})
-    assert result["options"]["forecast_start_offset"] == 1
+    assert result["options"]["forecast_start_offset"] == 0
     assert result["options"]["forecast_days"] == 1
 
 
@@ -499,7 +499,7 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
         result["flow_id"],
         {
             "forecast_start_offset": "1",
-            "forecast_days": 1,
+            "forecast_days": "1",
             "include_sunrise": False,
             "include_sunset": False,
             "update_interval": "6",
@@ -511,7 +511,7 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
         result["flow_id"],
         {
             "forecast_start_offset": "1",
-            "forecast_days": 1,
+            "forecast_days": "1",
             "include_sunrise": True,
             "include_sunset": False,
             "update_interval": "6",
@@ -521,14 +521,15 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
     assert result["type"] == "create_entry"
     assert result["data"]["update_interval"] == 6
     assert result["data"]["forecast_start_offset"] == 1
+    assert result["data"]["forecast_days"] == 1
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "user_input",
     [
-        {"forecast_days": 4, "update_interval": "6"},
-        {"forecast_days": 1, "update_interval": "5"},
+        {"forecast_days": "4", "update_interval": "6"},
+        {"forecast_days": "1", "update_interval": "5"},
     ],
 )
 async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry, user_input) -> None:
@@ -537,7 +538,7 @@ async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry,
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     invalid = {
         "forecast_start_offset": "0",
-        "forecast_days": 1,
+        "forecast_days": "1",
         "include_sunrise": True,
         "include_sunset": False,
         "update_interval": "6",
@@ -547,7 +548,7 @@ async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry,
     with pytest.raises(InvalidData):
         await hass.config_entries.options.async_configure(result["flow_id"], invalid)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
-    valid = {**invalid, "forecast_days": 1, "update_interval": "12"}
+    valid = {**invalid, "forecast_days": "1", "update_interval": "12"}
     result = await hass.config_entries.options.async_configure(result["flow_id"], valid)
     assert result["type"] == "create_entry"
 
@@ -558,14 +559,14 @@ def test_config_schemas_apply_expected_types() -> None:
     options = _options_schema()(
         {
             "forecast_start_offset": "1",
-            "forecast_days": 1,
+            "forecast_days": "1",
             "include_sunrise": True,
             "include_sunset": False,
             "update_interval": "6",
             "create_detailed_entities": True,
         }
     )
-    assert options["forecast_days"] == 1
+    assert options["forecast_days"] == "1"
 
 
 @pytest.mark.asyncio

@@ -33,7 +33,7 @@ After the restart, add **SunsetHue** from *Settings → Devices & services → A
 integration* (not *Devices → Add device*). Supply a display name, API key,
 latitude, longitude, an IANA time zone such as `America/New_York`, and the
 initial forecast day (today, tomorrow, or day after tomorrow). New installations
-default to **tomorrow only**. Configure another entry for each location.
+default to **today only**. Configure another entry for each location.
 Location coordinates are validated by Sunsethue and duplicate normalized
 locations are rejected. See [troubleshooting](docs/troubleshooting.md) if the
 integration does not appear.
@@ -41,7 +41,7 @@ integration does not appear.
 ## Entities and updates
 
 New installations create quality and quality-text sensors for the selected
-forecast day (default: tomorrow) for sunrise and sunset — **two API requests per
+forecast day (default: today) for sunrise and sunset — **two API requests per
 refresh** when both event types stay enabled. Existing installations keep their
 previous forecast window through migration (previously three days starting
 today, six requests by default).

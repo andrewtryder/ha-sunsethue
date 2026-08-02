@@ -109,6 +109,24 @@ def _forecast_start_offset_selector_value(value: object) -> str:
     return str(offset)
 
 
+def _forecast_days_selector_value(value: object) -> str:
+    """Return a valid string value for the forecast-days SelectSelector."""
+    if isinstance(value, bool):
+        days = DEFAULT_FORECAST_DAYS
+    elif isinstance(value, int):
+        days = value
+    elif isinstance(value, str):
+        try:
+            days = int(value)
+        except ValueError:
+            days = DEFAULT_FORECAST_DAYS
+    else:
+        days = DEFAULT_FORECAST_DAYS
+    if not 1 <= days <= MAX_FORECAST_DAYS:
+        days = DEFAULT_FORECAST_DAYS
+    return str(days)
+
+
 def _default_options(*, start_offset: int = DEFAULT_FORECAST_START_OFFSET) -> dict[str, Any]:
     """Return options stored for a newly created config entry."""
     return {
@@ -399,6 +417,7 @@ def _options_suggested_values(
     if user_input is not None:
         suggested.update(dict(user_input))
     suggested[CONF_FORECAST_START_OFFSET] = _forecast_start_offset_selector_value(suggested[CONF_FORECAST_START_OFFSET])
+    suggested[CONF_FORECAST_DAYS] = _forecast_days_selector_value(suggested[CONF_FORECAST_DAYS])
     suggested[CONF_UPDATE_INTERVAL] = _update_interval_selector_value(suggested[CONF_UPDATE_INTERVAL])
     return suggested
 
@@ -426,12 +445,11 @@ def _options_schema() -> vol.Schema:
                     translation_key="forecast_start_offset",
                 )
             ),
-            vol.Required(CONF_FORECAST_DAYS): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1,
-                    max=MAX_FORECAST_DAYS,
-                    step=1,
-                    mode=selector.NumberSelectorMode.BOX,
+            vol.Required(CONF_FORECAST_DAYS): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[str(item) for item in range(1, MAX_FORECAST_DAYS + 1)],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="forecast_days",
                 )
             ),
             vol.Required(CONF_INCLUDE_SUNRISE): selector.BooleanSelector(),

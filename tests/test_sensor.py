@@ -24,16 +24,12 @@ from custom_components.sunsethue.sensor import (
 )
 
 
-def test_configured_keys_default_three_days(mock_config_entry) -> None:
-    """Default behavior exposes six forecast quality sensors."""
+def test_configured_keys_default_today_only(mock_config_entry) -> None:
+    """Default behavior exposes two forecast quality sensors for today."""
     keys = _configured_keys(mock_config_entry)
     assert keys == [
         ForecastKey(0, SunsetHueEventType.SUNRISE),
         ForecastKey(0, SunsetHueEventType.SUNSET),
-        ForecastKey(1, SunsetHueEventType.SUNRISE),
-        ForecastKey(1, SunsetHueEventType.SUNSET),
-        ForecastKey(2, SunsetHueEventType.SUNRISE),
-        ForecastKey(2, SunsetHueEventType.SUNSET),
     ]
 
 
