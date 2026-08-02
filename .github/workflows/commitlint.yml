@@ -3,6 +3,7 @@ name: Commitlint
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -20,8 +21,10 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - name: Lint pull request commits
-        env:
-          COMMITLINT_FROM: ${{ github.event.pull_request.base.sha }}
-          COMMITLINT_TO: ${{ github.event.pull_request.head.sha }}
-        run: npm run commitlint -- --from "$COMMITLINT_FROM" --to "$COMMITLINT_TO" --verbose
+      - name: Lint commits
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            npm run commitlint -- --from "$(git rev-parse HEAD^)" --to HEAD --verbose
+          else
+            npm run commitlint -- --from "${{ github.event.pull_request.base.sha }}" --to "${{ github.event.pull_request.head.sha }}" --verbose
+          fi
