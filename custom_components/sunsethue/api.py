@@ -135,7 +135,7 @@ def _parse_retry_after(value: str | None) -> int | None:
     except ValueError:
         try:
             seconds = int((parsedate_to_datetime(value) - datetime.now(UTC)).total_seconds())
-        except (TypeError, ValueError, IndexError, OverflowError):
+        except TypeError, ValueError, IndexError, OverflowError:
             return None
     return max(0, min(seconds, MAX_RETRY_AFTER_SECONDS))
 

@@ -182,7 +182,7 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         try:
             latitude = float(user_input[CONF_LATITUDE])
             longitude = float(user_input[CONF_LONGITUDE])
-        except (KeyError, TypeError, ValueError):
+        except KeyError, TypeError, ValueError:
             errors["base"] = "invalid_coordinates"
             return None
         if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
@@ -190,7 +190,7 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return None
         try:
             time_zone = _valid_time_zone(str(user_input[CONF_TIME_ZONE]))
-        except (KeyError, vol.Invalid):
+        except KeyError, vol.Invalid:
             errors["base"] = "invalid_time_zone"
             return None
         location_name = str(user_input.get(CONF_LOCATION_NAME, "")).strip()
@@ -335,7 +335,7 @@ async def _async_validate_connection(hass: HomeAssistant, data: Mapping[str, Any
         return "invalid_coordinates"
     except SunsetHueInvalidResponseError:
         return "invalid_response"
-    except (KeyError, TypeError, ValueError, ZoneInfoNotFoundError):
+    except KeyError, TypeError, ValueError, ZoneInfoNotFoundError:
         return "invalid_time_zone"
     except Exception:  # Intentional UI boundary; never expose unexpected details.
         _LOGGER.exception("Unexpected SunsetHue validation failure")
