@@ -108,17 +108,27 @@ Report reproducible integration defects through [GitHub Issues](https://github.c
 
 ## Development and release
 
+Requires [uv](https://docs.astral.sh/uv/) so pre-commit and local commands share the
+locked dependency set.
+
 ```bash
 uv sync --group dev --locked
+uv run pre-commit install
+uv run pre-commit run --all-files
+uv run python -m pytest
 uv run --group dev ruff check .
 uv run --group dev ruff format --check .
 uv run --group dev mypy custom_components/sunsethue scripts
 uv run --group dev mypy --config-file mypy-tests.ini tests/helpers.py
-uv run --group dev pytest
-uv run --group dev pre-commit run --all-files
 python scripts/verify_release_metadata.py
 python scripts/verify_hacs_distribution.py
 ```
+
+Pre-commit runs the complete Home Assistant test suite with branch coverage after
+the fast formatting hooks, so a full `pre-commit run --all-files` can take longer
+than lint-only checks. Commits fail below **96%** branch-aware coverage. CI
+repeats the same coverage-enforced suite against the minimum supported and
+current stable Home Assistant versions.
 
 The GitHub workflows validate HACS, Hassfest, linting, GitHub Actions syntax,
 source-layout distribution, and tests against the minimum supported and current

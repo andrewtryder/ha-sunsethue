@@ -25,4 +25,21 @@ jobs:
         run: >-
           uv pip install --python .venv/bin/python --upgrade homeassistant
           pytest-homeassistant-custom-component pytest-cov
-      - run: .venv/bin/pytest
+      - name: Run tests with branch coverage
+        run: .venv/bin/python -m pytest
+      - name: Add coverage summary
+        if: always()
+        run: |
+          {
+            echo "### Coverage"
+            echo '```text'
+            .venv/bin/python -m coverage report --show-missing || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-${{ matrix.homeassistant }}
+          path: |
+            coverage.xml
+            coverage.json

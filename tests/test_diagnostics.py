@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.sunsethue.const import SunsetHueEventType
 from custom_components.sunsethue.diagnostics import (
+    _diagnostic_value,
     _serialize_datetime,
     async_get_config_entry_diagnostics,
 )
@@ -29,6 +30,10 @@ def test_diagnostic_value_normalizes_nested_types() -> None:
 def test_diagnostics_serialize_none() -> None:
     """Diagnostics retain only serializable values."""
     assert _serialize_datetime(None) is None
+    assert _diagnostic_value(None) is None
+    assert _diagnostic_value(["a", {"b": 1}]) == ["a", {"b": 1}]
+    marker = object()
+    assert _diagnostic_value(marker) == str(marker)
 
 
 @pytest.mark.asyncio
@@ -57,9 +62,31 @@ async def test_diagnostics_redacts_runtime_data(hass, mock_config_entry) -> None
         last_exception=None,
     )
     mock_config_entry.runtime_data = SimpleNamespace(coordinator=coordinator)
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry,
+        options={
+            "forecast_days": 2,
+            "nested": {"enabled": True},
+            "tags": ["a", "b"],
+        },
+    )
     data = await async_get_config_entry_diagnostics(hass, mock_config_entry)
     assert data["redacted"]["api_key"] == "REDACTED"
     assert data["location"] == "REDACTED"
     assert data["forecasts"]["0_sunset"]["grid_location"] == "REDACTED"
+    assert data["forecasts"]["0_sunset"]["event_time"] == now.isoformat()
     assert "time_zone" not in data
     assert data["coordinator"]["forecast_keys"] == ["0_sunset"]
+    assert data["options"]["nested"] == {"enabled": True}
+    assert data["options"]["tags"] == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_without_coordinator_data(hass, mock_config_entry) -> None:
+    """Diagnostics remain useful when the first refresh has not completed."""
+    coordinator = SimpleNamespace(data=None, last_update_success=False, last_exception=RuntimeError("boom"))
+    mock_config_entry.runtime_data = SimpleNamespace(coordinator=coordinator)
+    data = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+    assert data["forecasts"] == {}
+    assert data["coordinator"]["last_exception_type"] == "RuntimeError"

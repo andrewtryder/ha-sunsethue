@@ -7,5 +7,6 @@ __pycache__/
 .env
 node_modules/
 coverage.xml
+coverage.json
 htmlcov/
 *.egg-info/
