@@ -51,7 +51,7 @@ When you add a location, provide:
 - **Location name** — display name for this entry
 - **API key** — from the SunsetHue developer portal
 - **Latitude and longitude** — WGS84 decimal coordinates for the forecast site
-- **Time zone** — IANA zone such as `America/New_York` (dates use this local time)
+- **Time zone** — searchable IANA dropdown, preselected to Home Assistant's configured zone (dates use this local time)
 - **Initial forecast day** — which local date to start from
 
 A **forecast day** is one local calendar date relative to the location's time

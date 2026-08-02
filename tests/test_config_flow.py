@@ -24,14 +24,15 @@ from custom_components.sunsethue.api import (
 from custom_components.sunsethue.config_flow import (
     SunsetHueConfigFlow,
     _async_reconfigure_schema,
-    _async_user_schema,
+    _async_time_zone_options,
     _async_validate_connection,
+    _build_time_zone_options,
     _format_utc_offset,
     _normalize_coordinate,
     _options_schema,
     _time_zone_names,
-    _time_zone_options,
     _valid_time_zone,
+    _with_included_zone,
 )
 from custom_components.sunsethue.const import API_BASE_URL, CONF_API_KEY, CONF_LOCATION_ID, CONF_TIME_ZONE, DOMAIN
 
@@ -130,9 +131,11 @@ async def test_time_zone_dropdown_includes_iana_zones_with_offset_labels(hass) -
     options = _time_zone_selector_options(result["data_schema"])
     by_value = {option["value"]: option["label"] for option in options}
     assert "UTC" in by_value
+    assert "Japan" in by_value
     assert "America/New_York" in by_value
     assert by_value["America/New_York"].startswith("(UTC")
     assert by_value["America/New_York"].endswith("America/New York")
+    assert " now)" not in by_value["America/New_York"]
     assert "UTC-04:00" not in by_value
     assert "UTC-05:00" not in by_value
 
@@ -168,8 +171,9 @@ async def test_user_flow_stores_iana_time_zone(hass, aioclient_mock, event_full)
 def test_time_zone_option_labels_reflect_dst(when: datetime, expected_offset: str) -> None:
     """Offset labels follow IANA daylight-saving transitions."""
     _time_zone_names.cache_clear()
-    options = {option["value"]: option["label"] for option in _time_zone_options(when)}
-    assert options["America/New_York"] == f"({expected_offset} now) America/New York"
+    _build_time_zone_options.cache_clear()
+    options = {option["value"]: option["label"] for option in _build_time_zone_options(when)}
+    assert options["America/New_York"] == f"({expected_offset}) America/New York"
 
 
 def test_format_utc_offset_handles_zero_and_missing() -> None:
@@ -178,30 +182,73 @@ def test_format_utc_offset_handles_zero_and_missing() -> None:
     assert _format_utc_offset(datetime(2026, 1, 1, tzinfo=UTC).utcoffset()) == "UTC+00:00"
 
 
+def test_with_included_zone_injects_missing_valid_zone() -> None:
+    """Legacy or no-slash zones remain selectable when absent from the generated list."""
+    when = datetime(2026, 1, 15, 12, tzinfo=UTC)
+    options = _with_included_zone((), when, "Japan")
+    assert options[0]["value"] == "Japan"
+    assert options[0]["label"].endswith("Japan")
+    assert _with_included_zone((), when, "not/a-time-zone") == ()
+    assert _with_included_zone(options, when, "Japan") == options
+
+
 @pytest.mark.asyncio
-async def test_time_zone_names_are_warmed_via_executor_and_cached(hass, monkeypatch) -> None:
-    """available_timezones work runs in the executor and the name set is cached."""
+async def test_time_zone_option_build_runs_on_worker_thread(hass, monkeypatch) -> None:
+    """available_timezones and ZoneInfo construction run off the event loop."""
+    import threading
+    from zoneinfo import ZoneInfo as RealZoneInfo
+    from zoneinfo import available_timezones as real_available_timezones
+
     _time_zone_names.cache_clear()
-    real_add_executor_job = hass.async_add_executor_job
-    executor_targets: list[object] = []
+    _build_time_zone_options.cache_clear()
+    main_ident = threading.get_ident()
+    worker_idents: set[int] = set()
 
-    async def tracking_add_executor_job(func, *args):
-        executor_targets.append(func)
-        return await real_add_executor_job(func, *args)
+    def tracking_available_timezones():
+        worker_idents.add(threading.get_ident())
+        return real_available_timezones()
 
-    monkeypatch.setattr(hass, "async_add_executor_job", tracking_add_executor_job)
+    def tracking_zone_info(key):
+        worker_idents.add(threading.get_ident())
+        return RealZoneInfo(key)
 
-    await _async_user_schema(hass)
-    assert executor_targets == [_time_zone_names]
-    after_first = _time_zone_names.cache_info()
-    assert after_first.misses == 1
-    assert after_first.hits >= 1
+    monkeypatch.setattr(config_flow, "available_timezones", tracking_available_timezones)
+    monkeypatch.setattr(config_flow, "ZoneInfo", tracking_zone_info)
 
-    await _async_reconfigure_schema(hass)
-    assert executor_targets == [_time_zone_names, _time_zone_names]
-    after_second = _time_zone_names.cache_info()
-    assert after_second.misses == 1
-    assert after_second.hits > after_first.hits
+    options = await _async_time_zone_options(hass)
+    assert options
+    assert main_ident not in worker_idents
+    assert worker_idents
+
+
+@pytest.mark.asyncio
+async def test_user_form_preselects_no_slash_home_assistant_time_zone(hass) -> None:
+    """Home Assistant defaults without a slash remain selectable."""
+    hass.config.time_zone = "Japan"
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    defaults = _suggested_values(result["data_schema"])
+    options = _time_zone_selector_options(result["data_schema"])
+    assert defaults[CONF_TIME_ZONE] == "Japan"
+    assert any(option["value"] == "Japan" for option in options)
+
+
+@pytest.mark.asyncio
+async def test_reconfigure_preserves_no_slash_saved_time_zone(hass, mock_config_entry) -> None:
+    """An entry saved with a no-slash zone can reopen reconfigure unchanged."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=mock_config_entry.title,
+        unique_id=mock_config_entry.unique_id,
+        data={**mock_config_entry.data, CONF_TIME_ZONE: "Japan"},
+    )
+    entry.add_to_hass(hass)
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_RECONFIGURE, "entry_id": entry.entry_id}
+    )
+    defaults = _suggested_values(result["data_schema"])
+    options = _time_zone_selector_options(result["data_schema"])
+    assert defaults[CONF_TIME_ZONE] == "Japan"
+    assert any(option["value"] == "Japan" for option in options)
 
 
 @pytest.mark.asyncio
