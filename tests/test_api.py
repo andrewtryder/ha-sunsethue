@@ -16,12 +16,14 @@ from custom_components.sunsethue.api import (
     SunsetHueConnectionError,
     SunsetHueInvalidRequestError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
     _parse_event_forecast,
     _parse_retry_after,
 )
 from custom_components.sunsethue.const import API_BASE_URL, VERSION, SunsetHueEventType
 from custom_components.sunsethue.models import Coordinates
+from tests.conftest import FIXTURES
 
 
 def test_parse_full_response_ignores_unknown_fields(event_full: dict[str, Any]) -> None:
@@ -106,6 +108,142 @@ async def test_client_maps_request_and_service_errors(hass, aioclient_mock, stat
     aioclient_mock.get(f"{API_BASE_URL}/event", status=status)
     with pytest.raises(error):
         await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+
+
+@pytest.mark.asyncio
+async def test_client_maps_quota_error_from_body(hass, aioclient_mock) -> None:
+    """Documented quota JSON becomes a dedicated exception before HTTP mapping."""
+    payload = json.loads((FIXTURES / "error_response.json").read_text())
+    client = SunsetHueClient(async_get_clientsession(hass), "super-secret")
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=400, json=payload)
+    with pytest.raises(SunsetHueQuotaExceededError) as caught:
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+    assert "super-secret" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_client_maps_quota_message_without_code(hass, aioclient_mock) -> None:
+    """Quota wording is recognized even when the numeric code is absent."""
+    client = SunsetHueClient(async_get_clientsession(hass), "test-key")
+    aioclient_mock.get(
+        f"{API_BASE_URL}/event",
+        status=400,
+        json={"status": 400, "message": "Exceeded daily quota"},
+    )
+    with pytest.raises(SunsetHueQuotaExceededError):
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+
+
+@pytest.mark.asyncio
+async def test_client_maps_non_quota_invalid_request(hass, aioclient_mock) -> None:
+    """Non-quota 400 bodies remain invalid-request errors with safe attributes."""
+    client = SunsetHueClient(async_get_clientsession(hass), "test-key")
+    aioclient_mock.get(
+        f"{API_BASE_URL}/event",
+        status=400,
+        json={"status": 400, "code": 100, "message": "Invalid latitude"},
+    )
+    with pytest.raises(SunsetHueInvalidRequestError) as caught:
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+    assert caught.value.code == 100
+    assert caught.value.api_message == "Invalid latitude"
+    assert str(caught.value) == "SunsetHue rejected the request"
+
+
+@pytest.mark.asyncio
+async def test_client_reads_body_before_status_mapping() -> None:
+    """Error JSON is inspected even when Content-Length is unset."""
+    payload = json.loads((FIXTURES / "error_response.json").read_text())
+
+    class Content:
+        async def read(self, _size: int) -> bytes:
+            return json.dumps(payload).encode()
+
+    class Response:
+        status = 400
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(SunsetHueQuotaExceededError):
+        await SunsetHueClient(Session(), "test-key").async_get_event(  # type: ignore[arg-type]
+            Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+        )
+
+
+@pytest.mark.asyncio
+async def test_client_maps_timeout(hass, aioclient_mock) -> None:
+    """Transport timeouts become connection errors."""
+    client = SunsetHueClient(async_get_clientsession(hass), "test-key")
+    aioclient_mock.get(f"{API_BASE_URL}/event", exc=TimeoutError())
+    with pytest.raises(SunsetHueConnectionError, match="Timed out"):
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_oversized_body(hass) -> None:
+    """Bodies larger than the hard limit are rejected after a bounded read."""
+
+    class Content:
+        async def read(self, size: int) -> bytes:
+            return b"x" * size
+
+    class Response:
+        status = 200
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def get(self, *args, **kwargs):
+            return Response()
+
+    with pytest.raises(SunsetHueInvalidResponseError, match="size limit"):
+        await SunsetHueClient(Session(), "test-key").async_get_event(  # type: ignore[arg-type]
+            Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET
+        )
+
+
+@pytest.mark.asyncio
+async def test_client_ignores_malformed_error_body(hass, aioclient_mock) -> None:
+    """Non-object error bodies still map by HTTP status."""
+    client = SunsetHueClient(async_get_clientsession(hass), "test-key")
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=400, json=["not", "an", "object"])
+    with pytest.raises(SunsetHueInvalidRequestError) as caught:
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+    assert caught.value.code is None
+    assert caught.value.api_message is None
+
+
+@pytest.mark.asyncio
+async def test_client_ignores_invalid_error_field_types(hass, aioclient_mock) -> None:
+    """Bool and blank fields are not treated as documented error metadata."""
+    client = SunsetHueClient(async_get_clientsession(hass), "test-key")
+    aioclient_mock.get(
+        f"{API_BASE_URL}/event",
+        status=400,
+        json={"status": True, "code": True, "message": "   "},
+    )
+    with pytest.raises(SunsetHueInvalidRequestError) as caught:
+        await client.async_get_event(Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET)
+    assert caught.value.code is None
+    assert caught.value.api_message is None
 
 
 @pytest.mark.asyncio
@@ -214,6 +352,43 @@ async def test_client_sends_documented_request_contract(event_full: dict[str, An
         "forecast": "true",
     }
     assert request["headers"] == {"x-api-key": "test-key", "User-Agent": f"HomeAssistant/SunsetHue/{VERSION}"}
+
+
+@pytest.mark.asyncio
+async def test_client_sends_forecast_false_when_requested(event_full: dict[str, Any]) -> None:
+    """Callers can request the lightweight no-model validation path."""
+
+    class Content:
+        async def read(self, _size: int) -> bytes:
+            return json.dumps(event_full).encode()
+
+    class Response:
+        status = 200
+        headers: ClassVar[dict[str, str]] = {}
+        content_length = None
+        content = Content()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class Session:
+        def __init__(self) -> None:
+            self.params: dict[str, Any] | None = None
+
+        def get(self, url: str, **kwargs: Any) -> Response:
+            del url
+            self.params = kwargs["params"]
+            return Response()
+
+    session = Session()
+    await SunsetHueClient(session, "test-key").async_get_event(  # type: ignore[arg-type]
+        Coordinates(1, 2), date(2026, 8, 1), SunsetHueEventType.SUNSET, forecast=False
+    )
+    assert session.params is not None
+    assert session.params["forecast"] == "false"
 
 
 @pytest.mark.asyncio

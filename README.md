@@ -49,6 +49,11 @@ sunset, a 6/12/24-hour polling interval, and detail entities from the
 integration options. The six-hour default follows Sunsethue's cache guidance;
 the integration also refreshes shortly after each location's local midnight.
 
+API usage: setup validation requests one event with `forecast=false` (1 credit).
+Each coordinator refresh requests every enabled day/event with `forecast=true`.
+Defaults (3 days × sunrise and sunset) are 6 requests and up to about 30 credits
+per refresh. Narrow days/events or use a longer interval if your quota is tight.
+
 | Entity | Unit | Availability |
 | --- | --- | --- |
 | Quality (default) | % | Unavailable only when that forecast has no model quality or is missing. |

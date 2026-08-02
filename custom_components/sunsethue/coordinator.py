@@ -21,6 +21,7 @@ from .api import (
     SunsetHueClient,
     SunsetHueError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from .const import (
@@ -113,6 +114,8 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
                 raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="reauth_required") from err
             if isinstance(error, SunsetHueRateLimitError):
                 raise UpdateFailed("SunsetHue API rate limit reached", retry_after=error.retry_after) from err
+            if isinstance(error, SunsetHueQuotaExceededError):
+                raise UpdateFailed("SunsetHue daily API quota exceeded") from err
             if isinstance(error, SunsetHueInvalidResponseError):
                 raise UpdateFailed("SunsetHue API returned an invalid response") from err
             raise UpdateFailed("Unable to update SunsetHue forecast") from err

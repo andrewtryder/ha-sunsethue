@@ -16,6 +16,7 @@ from custom_components.sunsethue.api import (
     SunsetHueConnectionError,
     SunsetHueError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from custom_components.sunsethue.const import (
@@ -122,6 +123,19 @@ async def test_rate_limit_becomes_update_failure(hass, mock_config_entry) -> Non
     with pytest.raises(UpdateFailed) as caught:
         await coordinator._async_update_data()
     assert caught.value.retry_after == 30
+
+
+@pytest.mark.asyncio
+async def test_quota_exceeded_becomes_update_failure_without_reauth(hass, mock_config_entry) -> None:
+    """Quota exhaustion fails the refresh without starting reauthentication."""
+    coordinator = SunsetHueDataUpdateCoordinator(
+        hass,
+        mock_config_entry,
+        FakeSunsetHueClient(SunsetHueQuotaExceededError()),  # type: ignore[arg-type]
+    )
+    with pytest.raises(UpdateFailed, match="quota") as caught:
+        await coordinator._async_update_data()
+    assert not isinstance(caught.value, ConfigEntryAuthFailed)
 
 
 @pytest.mark.asyncio

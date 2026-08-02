@@ -18,6 +18,7 @@ from custom_components.sunsethue.api import (
     SunsetHueConnectionError,
     SunsetHueInvalidRequestError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from custom_components.sunsethue.config_flow import (
@@ -29,6 +30,7 @@ from custom_components.sunsethue.config_flow import (
     _valid_time_zone,
 )
 from custom_components.sunsethue.const import API_BASE_URL, CONF_LOCATION_ID, DOMAIN
+from tests.helpers import make_forecast
 
 
 def test_normalized_coordinates_are_stable() -> None:
@@ -383,7 +385,8 @@ def test_config_schemas_apply_expected_types() -> None:
         (SunsetHueAuthError(), "invalid_auth"),
         (SunsetHueConnectionError(), "cannot_connect"),
         (SunsetHueRateLimitError(1), "rate_limited"),
-        (SunsetHueInvalidRequestError(), "invalid_coordinates"),
+        (SunsetHueQuotaExceededError(), "quota_exceeded"),
+        (SunsetHueInvalidRequestError(), "invalid_request"),
         (SunsetHueInvalidResponseError(), "invalid_response"),
         (ValueError(), "invalid_time_zone"),
         (RuntimeError(), "unknown"),
@@ -396,9 +399,60 @@ async def test_connection_validation_maps_safe_errors(hass, monkeypatch, error, 
         def __init__(self, *args) -> None:
             pass
 
-        async def async_get_event(self, *args) -> None:
+        async def async_get_event(self, *args, **kwargs) -> None:
             raise error
 
     monkeypatch.setattr(config_flow, "SunsetHueClient", Client)
     data = {"api_key": "secret", "latitude": 1, "longitude": 2, "time_zone": "UTC"}
     assert await _async_validate_connection(hass, data) == expected
+
+
+@pytest.mark.asyncio
+async def test_connection_validation_uses_forecast_false(hass, monkeypatch) -> None:
+    """Setup validation avoids model-data credits."""
+    captured: dict[str, object] = {}
+
+    class Client:
+        def __init__(self, *args) -> None:
+            pass
+
+        async def async_get_event(self, *args, **kwargs):
+            captured["forecast"] = kwargs.get("forecast")
+            return make_forecast()
+
+    monkeypatch.setattr(config_flow, "SunsetHueClient", Client)
+    data = {"api_key": "secret", "latitude": 1, "longitude": 2, "time_zone": "UTC"}
+    assert await _async_validate_connection(hass, data) is None
+    assert captured["forecast"] is False
+
+
+@pytest.mark.asyncio
+async def test_user_flow_reports_quota_exceeded(hass, aioclient_mock) -> None:
+    """Quota exhaustion is shown as a dedicated form error."""
+    aioclient_mock.get(
+        f"{API_BASE_URL}/event",
+        status=400,
+        json={"status": 400, "code": 204, "message": "Exceeded daily quota"},
+    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"location_name": "Home", "api_key": "test-key", "latitude": 1, "longitude": 2, "time_zone": "UTC"},
+    )
+    assert result["errors"] == {"base": "quota_exceeded"}
+
+
+@pytest.mark.asyncio
+async def test_user_flow_reports_invalid_request(hass, aioclient_mock) -> None:
+    """Generic API rejection is not mislabeled as invalid coordinates."""
+    aioclient_mock.get(
+        f"{API_BASE_URL}/event",
+        status=400,
+        json={"status": 400, "code": 100, "message": "Invalid latitude"},
+    )
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"location_name": "Home", "api_key": "test-key", "latitude": 1, "longitude": 2, "time_zone": "UTC"},
+    )
+    assert result["errors"] == {"base": "invalid_request"}

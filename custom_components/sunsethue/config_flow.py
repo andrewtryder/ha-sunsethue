@@ -23,6 +23,7 @@ from .api import (
     SunsetHueConnectionError,
     SunsetHueInvalidRequestError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from .const import (
@@ -324,6 +325,7 @@ async def _async_validate_connection(hass: HomeAssistant, data: Mapping[str, Any
             Coordinates(float(data[CONF_LATITUDE]), float(data[CONF_LONGITUDE])),
             dt_util.now(time_zone).date(),
             SunsetHueEventType.SUNSET,
+            forecast=False,
         )
     except SunsetHueAuthError:
         return "invalid_auth"
@@ -331,8 +333,10 @@ async def _async_validate_connection(hass: HomeAssistant, data: Mapping[str, Any
         return "cannot_connect"
     except SunsetHueRateLimitError:
         return "rate_limited"
+    except SunsetHueQuotaExceededError:
+        return "quota_exceeded"
     except SunsetHueInvalidRequestError:
-        return "invalid_coordinates"
+        return "invalid_request"
     except SunsetHueInvalidResponseError:
         return "invalid_response"
     except KeyError, TypeError, ValueError, ZoneInfoNotFoundError:

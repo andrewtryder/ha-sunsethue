@@ -17,9 +17,12 @@ and its linked [Postman documentation](https://documenter.getpostman.com/view/39
 - Forecast horizon is three days. The service says forecasts are updated four
   times per day and may be cached per grid cell for six hours.
 
-The integration sends `forecast=true`; it never calls `/usage` or any other
-endpoint. A response costs 1 credit when `model_data` is false and 5 credits
-when it is true, per the Postman documentation.
+Config-flow and reauth validation send `forecast=false` so setup can confirm
+the API key, connectivity, and parameters without spending model-data credits.
+Coordinator refresh sends `forecast=true` because quality sensors need model
+fields. The integration never calls `/usage` or any other endpoint. A response
+costs 1 credit when `model_data` is false and 5 credits when it is true, per
+the Postman documentation.
 
 ## Response
 
@@ -36,8 +39,14 @@ valid success response and quality/cloud cover may be absent.
 Published documentation describes JSON error objects with `status`, `code`, and
 `message`, and lists 400 user errors and 500 server errors. It does not document
 authentication HTTP codes, 422, 429, `Retry-After`, rate-limit headers, or an
-attribution requirement. The integration defensively maps standard 401/403 to
-reauthentication, 400/422 to invalid request, 5xx/network failures to transient
-failures, and 429 to a bounded `Retry-After` delay. Those mappings are
-implementation inferences, not claimed API guarantees. No branding or
-attribution requirement was found in the reviewed sources.
+attribution requirement.
+
+The client reads a bounded response body before mapping failures so documented
+JSON error fields are available. When `code` is `204` or `message` indicates a
+daily quota exhaustion, the client raises a dedicated quota error (config flow:
+`quota_exceeded`; coordinator: `UpdateFailed` without reauth). Otherwise it
+defensively maps standard 401/403 to reauthentication, 400/422 to invalid
+request, 5xx/network failures to transient failures, and 429 to a bounded
+`Retry-After` delay. Those mappings are implementation inferences, not claimed
+API guarantees. No branding or attribution requirement was found in the reviewed
+sources.
