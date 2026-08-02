@@ -1,18 +1,58 @@
-name: Lint
+name: Quality
 on:
   pull_request:
   push:
     branches: [main]
 jobs:
-  lint:
+  ruff:
+    name: Ruff
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - run: uv python install 3.14
-      - run: uv venv --python 3.14
-      - run: uv pip install --python .venv/bin/python homeassistant==2026.3.4 pytest-homeassistant-custom-component ruff mypy pre-commit
-      - run: uv run --python .venv/bin/python ruff check .
-      - run: uv run --python .venv/bin/python ruff format --check .
-      - run: uv run --python .venv/bin/python mypy custom_components/sunsethue
-      - run: uv run --python .venv/bin/python pre-commit run --all-files
+      - run: uv sync --group dev --locked
+      - run: uv run --no-sync ruff check .
+      - run: uv run --no-sync ruff format --check .
+
+  mypy:
+    name: Mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --group dev --locked
+      - run: uv run --no-sync mypy custom_components/sunsethue
+
+  test-helper-mypy:
+    name: Test helper types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --group dev --locked
+      - run: uv run --no-sync mypy --config-file mypy-tests.ini tests/helpers.py
+
+  pre-commit:
+    name: Pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv python install 3.14
+      - run: uv sync --group dev --locked
+      - run: uv run --no-sync pre-commit run --all-files

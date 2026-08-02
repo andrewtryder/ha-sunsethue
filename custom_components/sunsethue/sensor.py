@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
-from typing import Any
+from datetime import date, datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,7 +14,6 @@ from homeassistant.const import DEGREE, PERCENTAGE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import SunsetHueConfigEntry
 from .const import (
     CONF_CREATE_DETAILED_ENTITIES,
     CONF_FORECAST_DAYS,
@@ -27,8 +25,14 @@ from .const import (
     DEFAULT_INCLUDE_SUNSET,
     SunsetHueEventType,
 )
+from .coordinator import SunsetHueDataUpdateCoordinator
 from .entity import SunsetHueEntity
 from .models import EventForecast, ForecastKey, MagicHourWindow
+from .types import SunsetHueConfigEntry
+
+type SensorNativeValue = str | int | float | date | datetime | None
+type SensorAttributeValue = SensorNativeValue | bool
+type ForecastValueGetter = Callable[[EventForecast], SensorNativeValue]
 
 QUALITY_DESCRIPTION = SensorEntityDescription(
     key="quality", translation_key="quality", native_unit_of_measurement=PERCENTAGE
@@ -36,7 +40,7 @@ QUALITY_DESCRIPTION = SensorEntityDescription(
 
 PARALLEL_UPDATES = 0
 
-_DETAILED_DESCRIPTIONS: tuple[tuple[SensorEntityDescription, Callable[[EventForecast], Any]], ...] = (
+_DETAILED_DESCRIPTIONS: tuple[tuple[SensorEntityDescription, ForecastValueGetter], ...] = (
     (
         SensorEntityDescription(
             key="event_time",
@@ -133,7 +137,9 @@ def _window_value(window: MagicHourWindow | None, name: str) -> datetime | None:
 class _SunsetHueForecastSensor(SunsetHueEntity, SensorEntity):
     """Base sensor for a stable forecast key."""
 
-    def __init__(self, coordinator: Any, entry: SunsetHueConfigEntry, key: ForecastKey) -> None:
+    def __init__(
+        self, coordinator: SunsetHueDataUpdateCoordinator, entry: SunsetHueConfigEntry, key: ForecastKey
+    ) -> None:
         """Initialize a keyed forecast sensor."""
         super().__init__(coordinator)
         self._key = key
@@ -154,7 +160,9 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
 
     entity_description = QUALITY_DESCRIPTION
 
-    def __init__(self, coordinator: Any, entry: SunsetHueConfigEntry, key: ForecastKey) -> None:
+    def __init__(
+        self, coordinator: SunsetHueDataUpdateCoordinator, entry: SunsetHueConfigEntry, key: ForecastKey
+    ) -> None:
         """Initialize the quality sensor."""
         super().__init__(coordinator, entry, key)
         self._attr_unique_id = f"{entry.entry_id}_{key.event_type.value}_{key.day_offset}_quality"
@@ -171,12 +179,12 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
         return None if forecast is None or forecast.quality is None else round(forecast.quality * 100, 1)
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, SensorAttributeValue]:
         """Return concise, non-secret forecast context."""
         forecast = self._forecast
         if forecast is None:
             return {}
-        attributes: dict[str, Any] = {
+        attributes: dict[str, SensorAttributeValue] = {
             "forecast_date": self._forecast_date,
             "event_type": forecast.event_type.value,
             "model_data": forecast.model_data,
@@ -207,11 +215,11 @@ class SunsetHueDetailedSensor(_SunsetHueForecastSensor):
 
     def __init__(
         self,
-        coordinator: Any,
+        coordinator: SunsetHueDataUpdateCoordinator,
         entry: SunsetHueConfigEntry,
         key: ForecastKey,
         description: SensorEntityDescription,
-        value_getter: Callable[[EventForecast], Any],
+        value_getter: ForecastValueGetter,
     ) -> None:
         """Initialize the detailed forecast sensor."""
         super().__init__(coordinator, entry, key)
@@ -225,7 +233,7 @@ class SunsetHueDetailedSensor(_SunsetHueForecastSensor):
         return super().available and self.native_value is not None
 
     @property
-    def native_value(self) -> Any:
+    def native_value(self) -> SensorNativeValue:
         """Return the field supplied by the description's getter."""
         forecast = self._forecast
         return None if forecast is None else self._value_getter(forecast)

@@ -9,14 +9,7 @@ from typing import Any
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.sunsethue.const import (
-    CONF_API_KEY,
-    CONF_LATITUDE,
-    CONF_LOCATION_ID,
-    CONF_LOCATION_NAME,
-    CONF_LONGITUDE,
-    CONF_TIME_ZONE,
-)
+from tests.helpers import make_config_entry_data
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -45,12 +38,5 @@ def mock_config_entry() -> MockConfigEntry:
         domain="sunsethue",
         title="Home",
         unique_id="test-location-id",
-        data={
-            CONF_API_KEY: "test-api-key",
-            CONF_LOCATION_NAME: "Home",
-            CONF_LATITUDE: 40.7128,
-            CONF_LONGITUDE: -74.006,
-            CONF_TIME_ZONE: "America/New_York",
-            CONF_LOCATION_ID: "test-location-id",
-        },
+        data=make_config_entry_data(),
     )

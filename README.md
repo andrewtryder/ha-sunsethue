@@ -63,6 +63,15 @@ entities:
 See [automation examples](docs/automation-examples.md) for notifications and
 lighting examples.
 
+## Automation blueprints
+
+[![Import the SunsetHue quality notification blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/andrewtryder/ha-sunsethue/blob/main/blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml)
+
+The official [sunset-quality notification blueprint](blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml)
+runs your chosen notification or action sequence whenever a selected sunset
+quality sensor updates above a percentage you set. Use the manual
+[automation examples](docs/automation-examples.md) when you need custom logic.
+
 ## Privacy and support
 
 The API key is stored in the config entry and sent only as the documented
@@ -85,11 +94,13 @@ Report reproducible integration defects through [GitHub Issues](https://github.c
 ## Development and release
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy custom_components/sunsethue
-uv run pytest
-pre-commit run --all-files
+uv sync --group dev --locked
+uv run --group dev ruff check .
+uv run --group dev ruff format --check .
+uv run --group dev mypy custom_components/sunsethue
+uv run --group dev mypy --config-file mypy-tests.ini tests/helpers.py
+uv run --group dev pytest
+uv run --group dev pre-commit run --all-files
 ```
 
 The GitHub workflows validate HACS, Hassfest, linting, GitHub Actions syntax,
@@ -108,9 +119,3 @@ HEAD` before opening a pull request.
 
 Consult Sunsethue's current developer page and terms for pricing, quotas, and
 permitted use rather than relying on this repository for those details.
-
-## Roadmap
-
-Potential future work includes more platforms and configurable presentation;
-version 0.1.0 deliberately excludes YAML configuration, services, refresh
-buttons, historical storage, geocoding, account management, and frontend cards.

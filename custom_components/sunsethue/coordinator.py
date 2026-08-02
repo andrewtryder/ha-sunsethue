@@ -7,10 +7,8 @@ import logging
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, time, timedelta
-from typing import Any, cast
 from zoneinfo import ZoneInfo
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr
@@ -41,6 +39,7 @@ from .const import (
     update_interval_from_options,
 )
 from .models import Coordinates, EventForecast, ForecastKey, SunsetHueCoordinatorData
+from .types import SunsetHueConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -48,8 +47,8 @@ _LOGGER = logging.getLogger(__name__)
 class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorData]):
     """Fetch a complete, consistent forecast grid for a config entry."""
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry[Any], client: SunsetHueClient) -> None:
-        self.config_entry = entry
+    def __init__(self, hass: HomeAssistant, entry: SunsetHueConfigEntry, client: SunsetHueClient) -> None:
+        self._entry = entry
         self.client = client
         self._time_zone = ZoneInfo(entry.data[CONF_TIME_ZONE])
         self._cancel_midnight_refresh: Callable[[], None] | None = None
@@ -86,7 +85,7 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
 
     async def _async_update_data(self) -> SunsetHueCoordinatorData:
         """Fetch every requested forecast or fail atomically."""
-        entry = cast(ConfigEntry[Any], self.config_entry)
+        entry = self._entry
         coordinates = Coordinates(float(entry.data[CONF_LATITUDE]), float(entry.data[CONF_LONGITUDE]))
         days = int(entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS))
         events = self._enabled_events()
@@ -121,7 +120,7 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
 
     def _enabled_events(self) -> tuple[SunsetHueEventType, ...]:
         events: list[SunsetHueEventType] = []
-        entry = cast(ConfigEntry[Any], self.config_entry)
+        entry = self._entry
         if entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE):
             events.append(SunsetHueEventType.SUNRISE)
         if entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET):
@@ -131,7 +130,7 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
     @property
     def device_info(self) -> dr.DeviceInfo:
         """Return the single service device shared by this entry's entities."""
-        entry = cast(ConfigEntry[Any], self.config_entry)
+        entry = self._entry
         return dr.DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,

@@ -1,0 +1,48 @@
+blueprint:
+  name: Notify when SunsetHue sunset quality exceeds a threshold
+  description: >-
+    Run a chosen notification or action sequence whenever the selected SunsetHue
+    sunset-quality sensor updates above your chosen percentage threshold.
+  domain: automation
+  input:
+    sunset_quality_sensor:
+      name: Sunset quality sensor
+      description: Select a SunsetHue sunset quality sensor.
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+    quality_threshold:
+      name: Quality threshold
+      description: Run the action when quality is greater than this percentage.
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: box
+    notification_action:
+      name: Notification action
+      description: Choose one or more notification or other Home Assistant actions.
+      selector:
+        action:
+
+mode: queued
+max: 10
+
+variables:
+  quality_threshold: !input quality_threshold
+
+triggers:
+  - trigger: state
+    entity_id: !input sunset_quality_sensor
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.to_state is not none
+         and is_number(trigger.to_state.state)
+         and (trigger.to_state.state | float) > (quality_threshold | float) }}
+
+actions: !input notification_action

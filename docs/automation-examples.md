@@ -1,5 +1,9 @@
 # Automation examples
 
+For a ready-to-use threshold notification, import the official
+[SunsetHue sunset-quality blueprint](../blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml).
+The examples below are for custom automation logic.
+
 Replace every example entity ID with your own and keep the availability checks:
 Sunsethue may validly omit forecast quality when model data is unavailable.
 
