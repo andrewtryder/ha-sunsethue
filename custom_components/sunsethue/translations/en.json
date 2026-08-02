@@ -4,20 +4,22 @@
     "step": {
       "user": {
         "title": "Set up SunsetHue",
-        "description": "Add one forecast location.",
+        "description": "Add one forecast location. New installations default to tomorrow's forecast.",
         "data": {
           "location_name": "Location name",
           "api_key": "API key",
           "latitude": "Latitude",
           "longitude": "Longitude",
-          "time_zone": "Time zone"
+          "time_zone": "Time zone",
+          "forecast_start_offset": "Forecast day"
         },
         "data_description": {
           "location_name": "A label shown in Home Assistant for this forecast location.",
           "api_key": "Create an API key in the Sunsethue developer portal. It is stored only in this config entry.",
           "latitude": "Decimal degrees between -90 and 90 for the forecast location.",
           "longitude": "Decimal degrees between -180 and 180 for the forecast location.",
-          "time_zone": "An IANA time zone, such as America/New_York, used to calculate local forecast dates."
+          "time_zone": "An IANA time zone, such as America/New_York, used to calculate local forecast dates.",
+          "forecast_start_offset": "Which local day to forecast. Tomorrow is the default. Each selected event type for that day uses one API request per refresh. The API supports at most three days from today."
         }
       },
       "reauth_confirm": {
@@ -46,7 +48,9 @@
       "invalid_auth": "The API key was rejected.",
       "cannot_connect": "Unable to connect to SunsetHue.",
       "rate_limited": "SunsetHue is rate limiting requests. Try again later.",
+      "quota_exceeded": "The SunsetHue daily API quota has been exceeded. Try again after the quota resets or increase the API allowance in the SunsetHue developer portal.",
       "invalid_coordinates": "The coordinates are invalid or unsupported.",
+      "invalid_request": "SunsetHue rejected the request. Check your API key, coordinates, and account status.",
       "invalid_time_zone": "Enter a valid IANA time zone, such as America/New_York.",
       "invalid_response": "SunsetHue returned an invalid response.",
       "already_configured": "This location is already configured.",
@@ -64,30 +68,44 @@
       "init": {
         "title": "SunsetHue options",
         "data": {
-          "forecast_days": "Forecast days",
+          "forecast_start_offset": "First forecast day",
+          "forecast_days": "Number of consecutive forecast days",
           "include_sunrise": "Include sunrise forecasts",
           "include_sunset": "Include sunset forecasts",
           "update_interval": "Update interval (hours)",
           "create_detailed_entities": "Create detailed forecast entities"
         },
         "data_description": {
-          "forecast_days": "Request one to three local dates. Each selected event for each date uses an API request per refresh.",
+          "forecast_start_offset": "The first local day to request. Tomorrow is the default for new installations. The API supports today, tomorrow, and the day after tomorrow.",
+          "forecast_days": "How many consecutive local dates to request starting from the first forecast day. Each selected event for each date uses an API request per refresh. The start day plus this count cannot exceed three days from today.",
           "include_sunrise": "Include sunrise forecasts. At least one event type must remain enabled.",
           "include_sunset": "Include sunset forecasts. At least one event type must remain enabled.",
           "update_interval": "How often SunsetHue is queried. A six-hour interval follows the API cache guidance; shorter intervals can use more API credits.",
-          "create_detailed_entities": "Create separate event-time, cloud-cover, direction, and blue/golden-hour entities in addition to quality sensors."
+          "create_detailed_entities": "Create separate event-time, cloud-cover, direction, and blue/golden-hour entities in addition to quality and quality-text sensors."
         }
       }
     },
     "error": {
+      "forecast_window_exceeds_horizon": "The forecast window must stay within three days from today. Reduce the first day or the number of consecutive days.",
       "invalid_forecast_days": "Choose between one and three forecast days.",
       "invalid_update_interval": "Choose 6, 12, or 24 hours.",
-      "no_events_selected": "Enable sunrise, sunset, or both."
+      "no_events_selected": "Enable sunrise, sunset, or both.",
+      "unknown": "An unexpected error occurred."
+    }
+  },
+  "selector": {
+    "forecast_start_offset": {
+      "options": {
+        "0": "Today",
+        "1": "Tomorrow",
+        "2": "Day after tomorrow"
+      }
     }
   },
   "entity": {
     "sensor": {
       "quality": {"name": "{day} {event} quality"},
+      "quality_text": {"name": "{day} {event} quality text"},
       "event_time": {"name": "{day} {event} event time"},
       "cloud_cover": {"name": "{day} {event} cloud cover"},
       "direction": {"name": "{day} {event} direction"},

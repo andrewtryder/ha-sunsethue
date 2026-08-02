@@ -29,46 +29,53 @@ install, `manifest.json` is at
 
 After the restart, add **SunsetHue** from *Settings → Devices & services → Add
 integration* (not *Devices → Add device*). Supply a display name, API key,
-latitude, longitude, and an IANA time zone such as `America/New_York`. Configure
-another entry for each location. Location coordinates are validated by Sunsethue
-and duplicate normalized locations are rejected. See
-[troubleshooting](docs/troubleshooting.md) if the integration does not appear.
+latitude, longitude, an IANA time zone such as `America/New_York`, and the
+initial forecast day (today, tomorrow, or day after tomorrow). New installations
+default to **tomorrow only**. Configure another entry for each location.
+Location coordinates are validated by Sunsethue and duplicate normalized
+locations are rejected. See [troubleshooting](docs/troubleshooting.md) if the
+integration does not appear.
 
 ## Entities and updates
 
-By default each location has six quality sensors: today, tomorrow, and day
-after tomorrow for both sunrise and sunset. Quality is shown as a percentage;
-the API may report no model data, in which case that forecast is unavailable
-without making the integration fail. Quality sensors also include event time,
-cloud cover, direction, blue/golden-hour windows, and response metadata as
-attributes where supplied by the API.
+New installations create quality and quality-text sensors for the selected
+forecast day (default: tomorrow) for sunrise and sunset — **two API requests per
+refresh** when both event types stay enabled. Existing installations keep their
+previous forecast window through migration (previously three days starting
+today, six requests by default).
+
+Quality is shown as a percentage. A companion quality-text sensor shows the
+API's raw description (`Poor`, `Fair`, `Good`, `Great`, `Excellent`, or any
+future string). The API may report no model data, in which case those sensors
+are unavailable without making the integration fail. Quality sensors also
+include event time, cloud cover, direction, blue/golden-hour windows, and
+response metadata as attributes where supplied by the API.
 
 Optional detailed entities create separate event-time, cloud-cover, direction,
-and magic-hour sensors. Choose one to three forecast days, sunrise and/or
-sunset, a 6/12/24-hour polling interval, and detail entities from the
-integration options. The six-hour default follows Sunsethue's cache guidance;
-the integration also refreshes shortly after each location's local midnight.
+and magic-hour sensors. From integration options you can change the first
+forecast day, consecutive day count (within the three-day horizon), sunrise
+and/or sunset, a 6/12/24-hour polling interval, and detail entities. The
+six-hour default follows Sunsethue's cache guidance; the integration also
+refreshes shortly after each location's local midnight.
+
+API usage: setup validation requests one event with `forecast=false` (1 credit)
+for the selected day. Each coordinator refresh uses `forecast=true`. Selecting
+more days or both event types increases requests. Increase your allowance in the
+[Sunsethue developer portal](https://sunsethue.com/dev-api/portal) if you hit
+the daily quota.
 
 | Entity | Unit | Availability |
 | --- | --- | --- |
 | Quality (default) | % | Unavailable only when that forecast has no model quality or is missing. |
+| Quality text (default) | — | Unavailable only when that forecast has no quality text. |
 | Event time (optional) | Timestamp | Unavailable when the API does not provide an event time. |
 | Cloud cover (optional) | % | Unavailable when the API does not provide cloud cover. |
 | Direction (optional) | ° | Unavailable when the API does not provide direction. |
 | Blue/golden-hour boundaries (optional) | Timestamp | Unavailable when the relevant boundary is absent. |
 
-Example dashboard card:
-
-```yaml
-type: entities
-title: Sunset forecast
-entities:
-  - sensor.home_today_sunset_quality
-  - sensor.home_today_sunrise_quality
-```
-
-See [automation examples](docs/automation-examples.md) for notifications and
-lighting examples.
+See [dashboard examples](docs/dashboard-examples.md) for native and optional
+Mushroom pill layouts, and [automation examples](docs/automation-examples.md)
+for notifications and lighting.
 
 ## Automation blueprints
 
@@ -89,8 +96,9 @@ Devices & services → SunsetHue → Download diagnostics* when opening an issue
 reviewing the file before sharing it.
 
 If an API key is revoked or expires, Home Assistant starts reauthentication.
-See [troubleshooting](docs/troubleshooting.md) for rate limits and availability.
-Remove an entry from its integration page, then uninstall through HACS or delete
+Daily quota exhaustion shows a quota-specific error and does not blame
+coordinates. See [troubleshooting](docs/troubleshooting.md). Remove an entry
+from its integration page, then uninstall through HACS or delete
 `custom_components/sunsethue`; removing an entry does not alter your Sunsethue
 account or API key.
 

@@ -21,21 +21,22 @@ from .api import (
     SunsetHueClient,
     SunsetHueError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from .const import (
-    CONF_FORECAST_DAYS,
     CONF_INCLUDE_SUNRISE,
     CONF_INCLUDE_SUNSET,
     CONF_LATITUDE,
     CONF_LONGITUDE,
     CONF_TIME_ZONE,
-    DEFAULT_FORECAST_DAYS,
     DEFAULT_INCLUDE_SUNRISE,
     DEFAULT_INCLUDE_SUNSET,
     DOMAIN,
     MIDNIGHT_REFRESH_DELAY_SECONDS,
     SunsetHueEventType,
+    forecast_days_from_options,
+    forecast_start_offset_from_options,
     update_interval_from_options,
 )
 from .models import Coordinates, EventForecast, ForecastKey, SunsetHueCoordinatorData
@@ -48,38 +49,38 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
     """Fetch a complete, consistent forecast grid for a config entry."""
 
     def __init__(self, hass: HomeAssistant, entry: SunsetHueConfigEntry, client: SunsetHueClient) -> None:
-        self._entry = entry
+        """Initialize the coordinator for one location."""
         self.client = client
+        self._entry = entry
         self._time_zone = ZoneInfo(entry.data[CONF_TIME_ZONE])
-        self._cancel_midnight_refresh: Callable[[], None] | None = None
+        self._cancel_midnight: Callable[[], None] | None = None
         super().__init__(
             hass,
             _LOGGER,
-            name=DOMAIN,
             config_entry=entry,
+            name=f"SunsetHue {entry.title}",
             update_interval=update_interval_from_options(entry.options),
-            always_update=False,
         )
 
     def async_schedule_midnight_refresh(self) -> None:
-        """Schedule exactly one refresh shortly after this location's midnight."""
+        """Schedule a refresh shortly after the location's next local midnight."""
         self.async_cancel_midnight_refresh()
         now = dt_util.now(self._time_zone)
-        next_midnight = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=self._time_zone) + timedelta(
-            seconds=MIDNIGHT_REFRESH_DELAY_SECONDS
-        )
-        self._cancel_midnight_refresh = event_helper.async_track_point_in_time(
-            self.hass, self._async_midnight_refresh, next_midnight
+        next_midnight = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=self._time_zone)
+        self._cancel_midnight = event_helper.async_track_point_in_time(
+            self.hass,
+            self._async_midnight_refresh,
+            next_midnight + timedelta(seconds=MIDNIGHT_REFRESH_DELAY_SECONDS),
         )
 
     def async_cancel_midnight_refresh(self) -> None:
-        """Cancel the pending midnight callback, if any."""
-        if self._cancel_midnight_refresh is not None:
-            self._cancel_midnight_refresh()
-            self._cancel_midnight_refresh = None
+        """Cancel any pending midnight refresh callback."""
+        if self._cancel_midnight is not None:
+            self._cancel_midnight()
+            self._cancel_midnight = None
 
-    async def _async_midnight_refresh(self, _: datetime) -> None:
-        """Refresh and schedule tomorrow's callback."""
+    async def _async_midnight_refresh(self, _now: datetime) -> None:
+        """Refresh after local midnight and schedule the next occurrence."""
         self.async_schedule_midnight_refresh()
         await self.async_request_refresh()
 
@@ -87,7 +88,8 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
         """Fetch every requested forecast or fail atomically."""
         entry = self._entry
         coordinates = Coordinates(float(entry.data[CONF_LATITUDE]), float(entry.data[CONF_LONGITUDE]))
-        days = int(entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS))
+        start_offset = forecast_start_offset_from_options(entry.options)
+        days = forecast_days_from_options(entry.options)
         events = self._enabled_events()
         today = dt_util.now(self._time_zone).date()
         semaphore = asyncio.Semaphore(3)
@@ -102,7 +104,11 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
                 raise SunsetHueInvalidResponseError("Response event type does not match request")
             forecasts[key] = replace(forecast, forecast_date=forecast_date)
 
-        keys = [ForecastKey(day_offset, event_type) for day_offset in range(days) for event_type in events]
+        keys = [
+            ForecastKey(day_offset, event_type)
+            for day_offset in range(start_offset, start_offset + days)
+            for event_type in events
+        ]
         try:
             async with asyncio.TaskGroup() as task_group:
                 for key in keys:
@@ -113,6 +119,11 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
                 raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="reauth_required") from err
             if isinstance(error, SunsetHueRateLimitError):
                 raise UpdateFailed("SunsetHue API rate limit reached", retry_after=error.retry_after) from err
+            if isinstance(error, SunsetHueQuotaExceededError):
+                raise UpdateFailed(
+                    "SunsetHue daily API quota exceeded",
+                    retry_after=getattr(error, "retry_after", None),
+                ) from err
             if isinstance(error, SunsetHueInvalidResponseError):
                 raise UpdateFailed("SunsetHue API returned an invalid response") from err
             raise UpdateFailed("Unable to update SunsetHue forecast") from err
@@ -129,20 +140,17 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
 
     @property
     def device_info(self) -> dr.DeviceInfo:
-        """Return the single service device shared by this entry's entities."""
-        entry = self._entry
+        """Expose a single service device for this config entry."""
         return dr.DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
+            identifiers={(DOMAIN, self._entry.entry_id)},
+            name=self._entry.title,
             manufacturer="SunsetHue",
-            model="Sunrise and sunset forecast service",
             entry_type=dr.DeviceEntryType.SERVICE,
-            configuration_url="https://sunsethue.com/dev-api",
         )
 
 
 def _iter_sunsethue_errors(error_group: BaseExceptionGroup) -> tuple[SunsetHueError, ...]:
-    """Flatten TaskGroup failures to their client error causes."""
+    """Flatten nested exception groups into SunsetHue client errors."""
     errors: list[SunsetHueError] = []
     for error in error_group.exceptions:
         if isinstance(error, BaseExceptionGroup):

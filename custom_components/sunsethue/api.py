@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import aiohttp
 
@@ -15,8 +17,10 @@ from .const import (
     API_EVENT_PATH,
     API_KEY_HEADER,
     API_TIMEOUT_SECONDS,
+    MAX_API_ERROR_MESSAGE_LENGTH,
     MAX_RESPONSE_BYTES,
     MAX_RETRY_AFTER_SECONDS,
+    QUOTA_API_CODE,
     VERSION,
     SunsetHueEventType,
 )
@@ -24,6 +28,7 @@ from .models import Coordinates, EventForecast, MagicHourWindow
 
 _LOGGER = logging.getLogger(__name__)
 _USER_AGENT = f"HomeAssistant/SunsetHue/{VERSION}"
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
 
 class SunsetHueError(Exception):
@@ -52,6 +57,42 @@ class SunsetHueInvalidResponseError(SunsetHueError):
 
 class SunsetHueInvalidRequestError(SunsetHueError):
     """The API rejected a request as invalid."""
+
+    def __init__(
+        self,
+        *,
+        status: int | None = None,
+        code: int | str | None = None,
+        api_message: str | None = None,
+    ) -> None:
+        super().__init__("SunsetHue rejected the request")
+        self.status = status
+        self.code = code
+        self.api_message = api_message
+
+    @property
+    def is_coordinate_error(self) -> bool:
+        """Return whether the API message indicates coordinates or location."""
+        message = (self.api_message or "").casefold()
+        return any(token in message for token in ("latitude", "longitude", "coordinate", "location", "bounds"))
+
+
+class SunsetHueQuotaExceededError(SunsetHueError):
+    """The API account has exhausted its daily quota."""
+
+    def __init__(self, *, status: int | None = None, code: int | str | None = None) -> None:
+        super().__init__("SunsetHue daily API quota exceeded")
+        self.status = status
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class SunsetHueApiError:
+    """Documented API error fields after sanitization."""
+
+    status: int
+    code: int | str | None
+    message: str | None
 
 
 class SunsetHueClient:
@@ -92,7 +133,8 @@ class SunsetHueClient:
                 timeout=self._timeout,
                 allow_redirects=False,
             ) as response:
-                self._raise_for_status(response)
+                status = response.status
+                retry_after = _parse_retry_after(response.headers.get("Retry-After"))
                 content_length = getattr(response, "content_length", None)
                 if content_length is not None and content_length > MAX_RESPONSE_BYTES:
                     raise SunsetHueInvalidResponseError("Response exceeds size limit")
@@ -104,26 +146,75 @@ class SunsetHueClient:
         except aiohttp.ClientError as err:
             raise SunsetHueConnectionError("Unable to contact SunsetHue API") from err
 
-        try:
-            payload = json.loads(body)
-        except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as err:
-            raise SunsetHueInvalidResponseError("Invalid JSON response") from err
-        return _parse_event_forecast(payload, expected_event_type=event_type)
+        if 200 <= status < 300:
+            try:
+                payload = json.loads(body)
+            except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as err:
+                raise SunsetHueInvalidResponseError("Invalid JSON response") from err
+            return _parse_event_forecast(payload, expected_event_type=event_type)
 
-    @staticmethod
-    def _raise_for_status(response: aiohttp.ClientResponse) -> None:
-        """Map HTTP classes without parsing a potentially untrusted body."""
-        if 200 <= response.status < 300:
-            return
-        if response.status in (401, 403):
-            raise SunsetHueAuthError("SunsetHue authentication failed")
-        if response.status == 429:
-            raise SunsetHueRateLimitError(_parse_retry_after(response.headers.get("Retry-After")))
-        if response.status in (400, 422):
-            raise SunsetHueInvalidRequestError("SunsetHue rejected the request")
-        if 500 <= response.status < 600:
-            raise SunsetHueConnectionError("SunsetHue service is unavailable")
-        raise SunsetHueConnectionError("Unexpected response from SunsetHue API")
+        api_error = _parse_api_error(status, body)
+        if _is_quota_exceeded(api_error):
+            raise SunsetHueQuotaExceededError(status=api_error.status, code=api_error.code)
+        _raise_for_http_status(status, retry_after=retry_after, api_error=api_error)
+
+
+def _parse_api_error(http_status: int, body: bytes) -> SunsetHueApiError:
+    """Extract documented error fields without trusting unexpected shapes."""
+    status = http_status
+    code: int | str | None = None
+    message: str | None = None
+    try:
+        payload = json.loads(body)
+    except TypeError, UnicodeDecodeError, json.JSONDecodeError:
+        return SunsetHueApiError(status=status, code=None, message=None)
+    if not isinstance(payload, dict):
+        return SunsetHueApiError(status=status, code=None, message=None)
+    raw_status = payload.get("status")
+    if isinstance(raw_status, int) and not isinstance(raw_status, bool):
+        status = raw_status
+    raw_code = payload.get("code")
+    if isinstance(raw_code, bool):
+        code = None
+    elif isinstance(raw_code, int | str):
+        code = raw_code
+    raw_message = payload.get("message")
+    if isinstance(raw_message, str):
+        cleaned = _CONTROL_CHARS.sub("", raw_message).strip()[:MAX_API_ERROR_MESSAGE_LENGTH]
+        message = cleaned or None
+    return SunsetHueApiError(status=status, code=code, message=message)
+
+
+def _is_quota_exceeded(api_error: SunsetHueApiError) -> bool:
+    """Return whether the API reported a daily quota exhaustion."""
+    if api_error.code == QUOTA_API_CODE:
+        return True
+    if isinstance(api_error.code, str) and api_error.code.strip() == str(QUOTA_API_CODE):
+        return True
+    message = (api_error.message or "").casefold()
+    return "quota" in message or "exceeded daily" in message
+
+
+def _raise_for_http_status(
+    status: int,
+    *,
+    retry_after: int | None,
+    api_error: SunsetHueApiError,
+) -> NoReturn:
+    """Map non-success HTTP statuses after the body has been inspected."""
+    if status in (401, 403):
+        raise SunsetHueAuthError("SunsetHue authentication failed")
+    if status == 429:
+        raise SunsetHueRateLimitError(retry_after)
+    if status in (400, 422):
+        raise SunsetHueInvalidRequestError(
+            status=api_error.status,
+            code=api_error.code,
+            api_message=api_error.message,
+        )
+    if 500 <= status < 600:
+        raise SunsetHueConnectionError("SunsetHue service is unavailable")
+    raise SunsetHueConnectionError("Unexpected response from SunsetHue API")
 
 
 def _parse_retry_after(value: str | None) -> int | None:
@@ -281,6 +372,8 @@ def _optional_magic_window(data: dict[str, Any], name: str) -> MagicHourWindow |
         raise SunsetHueInvalidResponseError(f"Invalid {name}")
     start = None if value[0] is None else _parse_magic_datetime(value[0], name)
     end = None if value[1] is None else _parse_magic_datetime(value[1], name)
+    if start is not None and end is not None and start > end:
+        raise SunsetHueInvalidResponseError(f"Invalid {name}")
     return MagicHourWindow(start, end)
 
 

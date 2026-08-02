@@ -38,9 +38,16 @@ the key in an issue or log.
 `model_data: false`. Event-time attributes and optional detailed fields may
 still be present. It is not an integration outage.
 
-**Rate limited:** wait for the service's requested delay. The integration never
-polls more frequently than six hours and respects a safe `Retry-After` value.
-Review current API quota and terms in the Sunsethue portal.
+**Rate limited:** wait for the service's requested delay. The integration
+respects a safe `Retry-After` value. Review current API terms in the Sunsethue
+portal.
+
+**Daily quota exceeded:** the API rejected requests because the account's daily
+credit allowance is exhausted. Setup validation uses `forecast=false` so
+configuring a location is cheap; ongoing refresh uses `forecast=true` for
+quality data. New installations default to tomorrow only (two requests when
+both sunrise and sunset are enabled). Expand the forecast window carefully in
+options. Wait for the quota to reset or increase allowance in the portal.
 
 **Location or time wrong:** reconfigure the entry with WGS84 decimal coordinates
 and an IANA time zone such as `Europe/Amsterdam`. Dates are requested in that
