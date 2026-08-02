@@ -75,7 +75,7 @@ USER_SCHEMA = vol.Schema(
         ),
         vol.Required(CONF_LATITUDE): vol.Coerce(float),
         vol.Required(CONF_LONGITUDE): vol.Coerce(float),
-        vol.Required(CONF_TIME_ZONE): vol.All(vol.Coerce(str), _valid_time_zone),
+        vol.Required(CONF_TIME_ZONE): selector.TextSelector(),
     }
 )
 

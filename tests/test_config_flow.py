@@ -8,7 +8,9 @@ import pytest
 import voluptuous as vol
 from homeassistant.config_entries import SOURCE_REAUTH, SOURCE_RECONFIGURE, SOURCE_USER
 from homeassistant.data_entry_flow import InvalidData
+from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from voluptuous_serialize import convert
 
 from custom_components.sunsethue import config_flow
 from custom_components.sunsethue.api import (
@@ -42,6 +44,39 @@ def test_invalid_time_zone_is_rejected() -> None:
         pass
     else:
         raise AssertionError("invalid time zone was accepted")
+
+
+@pytest.mark.asyncio
+async def test_user_form_schema_is_frontend_serializable(hass) -> None:
+    """The initial form schema can be converted for the frontend."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    assert result["type"] == "form"
+    serialized = convert(result["data_schema"], custom_serializer=cv.custom_serializer)
+    assert serialized
+
+
+@pytest.mark.asyncio
+async def test_all_config_flow_forms_are_frontend_serializable(hass, mock_config_entry) -> None:
+    """Every form returned by SunsetHue can be serialized."""
+    user_result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
+    convert(user_result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    mock_config_entry.add_to_hass(hass)
+
+    reauth_result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": mock_config_entry.entry_id},
+    )
+    convert(reauth_result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    reconfigure_result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_RECONFIGURE, "entry_id": mock_config_entry.entry_id},
+    )
+    convert(reconfigure_result["data_schema"], custom_serializer=cv.custom_serializer)
+
+    options_result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    convert(options_result["data_schema"], custom_serializer=cv.custom_serializer)
 
 
 @pytest.mark.asyncio
