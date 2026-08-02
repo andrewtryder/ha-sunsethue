@@ -10,7 +10,7 @@ from homeassistant.exceptions import ConfigEntryError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components import sunsethue
-from custom_components.sunsethue import _async_update_listener, async_migrate_entry, is_supported_home_assistant_version
+from custom_components.sunsethue import async_migrate_entry, is_supported_home_assistant_version
 from custom_components.sunsethue.const import (
     API_BASE_URL,
     CONF_FORECAST_DAYS,
@@ -108,15 +108,6 @@ async def test_migration_rejects_future_minor_version(hass, mock_config_entry) -
 
 
 @pytest.mark.asyncio
-async def test_update_listener_schedules_reload(hass, mock_config_entry, monkeypatch) -> None:
-    """Options and reconfigure changes schedule exactly one reload."""
-    schedule_reload = MagicMock()
-    monkeypatch.setattr(hass.config_entries, "async_schedule_reload", schedule_reload)
-    await _async_update_listener(hass, mock_config_entry)
-    schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("action", "user_input", "abort_reason"),
     [
@@ -144,7 +135,7 @@ async def test_update_listener_schedules_reload(hass, mock_config_entry, monkeyp
         ),
     ],
 )
-async def test_entry_updates_schedule_exactly_one_reload(
+async def test_flow_helpers_schedule_exactly_one_reload(
     hass,
     mock_config_entry,
     aioclient_mock,
@@ -154,12 +145,13 @@ async def test_entry_updates_schedule_exactly_one_reload(
     user_input,
     abort_reason,
 ) -> None:
-    """A live update listener owns reload for options, reconfigure, and reauth."""
+    """OptionsFlowWithReload and update_reload_and_abort own reload without listeners."""
     mock_config_entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(mock_config_entry, options={"include_sunrise": False})
     aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
+    assert mock_config_entry.update_listeners == []
 
     schedule_reload = MagicMock()
     reload = MagicMock()
@@ -190,3 +182,26 @@ async def test_entry_updates_schedule_exactly_one_reload(
     await hass.async_block_till_done()
     schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
     reload.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reauth_before_setup_schedules_reload(
+    hass, mock_config_entry, aioclient_mock, event_full, monkeypatch
+) -> None:
+    """Setup-failure reauth reloads even when no update listener was registered."""
+    mock_config_entry.add_to_hass(hass)
+    assert mock_config_entry.update_listeners == []
+    aioclient_mock.get(f"{API_BASE_URL}/event", status=200, json=event_full)
+
+    schedule_reload = MagicMock()
+    monkeypatch.setattr(hass.config_entries, "async_schedule_reload", schedule_reload)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": SOURCE_REAUTH, "entry_id": mock_config_entry.entry_id},
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"api_key": "replacement-key"})
+    assert result["type"] == "abort"
+    assert result["reason"] == "reauth_successful"
+    assert mock_config_entry.data["api_key"] == "replacement-key"
+    schedule_reload.assert_called_once_with(mock_config_entry.entry_id)
