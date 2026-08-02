@@ -20,7 +20,7 @@ cards:
           } %}
           {{ colors.get(quality, 'grey') }}
   - type: entities
-    title: Tomorrow's sunset forecast
+    title: Today's sunset forecast
     entities:
       - sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
       - sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY
