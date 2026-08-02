@@ -28,7 +28,7 @@ from custom_components.sunsethue.config_flow import (
     _reconfigure_schema,
     _valid_time_zone,
 )
-from custom_components.sunsethue.const import API_BASE_URL, CONF_LOCATION_ID, DOMAIN
+from custom_components.sunsethue.const import API_BASE_URL, CONF_API_KEY, CONF_LOCATION_ID, DOMAIN
 
 
 def test_normalized_coordinates_are_stable() -> None:
@@ -93,12 +93,16 @@ async def test_user_flow_creates_entry(hass, aioclient_mock, event_full) -> None
             "latitude": 40.7128,
             "longitude": -74.006,
             "time_zone": "America/New_York",
+            "forecast_start_offset": "1",
         },
     )
     assert result["type"] == "create_entry"
     assert result["title"] == "Home"
     assert result["data"]["api_key"] == "test-key"
     assert result["data"][CONF_LOCATION_ID]
+    assert CONF_API_KEY not in result.get("options", {})
+    assert result["options"]["forecast_start_offset"] == 1
+    assert result["options"]["forecast_days"] == 1
 
 
 @pytest.mark.asyncio
@@ -311,6 +315,7 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
+            "forecast_start_offset": "1",
             "forecast_days": 1,
             "include_sunrise": False,
             "include_sunset": False,
@@ -322,6 +327,7 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
+            "forecast_start_offset": "1",
             "forecast_days": 1,
             "include_sunrise": True,
             "include_sunset": False,
@@ -331,6 +337,7 @@ async def test_options_flow_enforces_selection_constraints(hass, mock_config_ent
     )
     assert result["type"] == "create_entry"
     assert result["data"]["update_interval"] == 6
+    assert result["data"]["forecast_start_offset"] == 1
 
 
 @pytest.mark.asyncio
@@ -346,6 +353,7 @@ async def test_options_flow_recovers_from_invalid_range(hass, mock_config_entry,
     mock_config_entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     invalid = {
+        "forecast_start_offset": "0",
         "forecast_days": 1,
         "include_sunrise": True,
         "include_sunset": False,
@@ -366,6 +374,7 @@ def test_config_schemas_apply_expected_types() -> None:
     assert "api_key" not in _reconfigure_schema().schema
     options = _options_schema()(
         {
+            "forecast_start_offset": "1",
             "forecast_days": 1,
             "include_sunrise": True,
             "include_sunset": False,
@@ -383,7 +392,8 @@ def test_config_schemas_apply_expected_types() -> None:
         (SunsetHueAuthError(), "invalid_auth"),
         (SunsetHueConnectionError(), "cannot_connect"),
         (SunsetHueRateLimitError(1), "rate_limited"),
-        (SunsetHueInvalidRequestError(), "invalid_coordinates"),
+        (SunsetHueInvalidRequestError(api_message="Invalid latitude"), "invalid_coordinates"),
+        (SunsetHueInvalidRequestError(api_message="Bad request"), "invalid_request"),
         (SunsetHueInvalidResponseError(), "invalid_response"),
         (ValueError(), "invalid_time_zone"),
         (RuntimeError(), "unknown"),
@@ -396,7 +406,7 @@ async def test_connection_validation_maps_safe_errors(hass, monkeypatch, error, 
         def __init__(self, *args) -> None:
             pass
 
-        async def async_get_event(self, *args) -> None:
+        async def async_get_event(self, *args, **kwargs) -> None:
             raise error
 
     monkeypatch.setattr(config_flow, "SunsetHueClient", Client)

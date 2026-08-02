@@ -16,14 +16,15 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
     CONF_CREATE_DETAILED_ENTITIES,
-    CONF_FORECAST_DAYS,
     CONF_INCLUDE_SUNRISE,
     CONF_INCLUDE_SUNSET,
     DEFAULT_CREATE_DETAILED_ENTITIES,
-    DEFAULT_FORECAST_DAYS,
     DEFAULT_INCLUDE_SUNRISE,
     DEFAULT_INCLUDE_SUNSET,
     SunsetHueEventType,
+    day_translation_key,
+    forecast_days_from_options,
+    forecast_start_offset_from_options,
 )
 from .coordinator import SunsetHueDataUpdateCoordinator
 from .entity import SunsetHueEntity
@@ -36,6 +37,10 @@ type ForecastValueGetter = Callable[[EventForecast], SensorNativeValue]
 
 QUALITY_DESCRIPTION = SensorEntityDescription(
     key="quality", translation_key="quality", native_unit_of_measurement=PERCENTAGE
+)
+QUALITY_TEXT_DESCRIPTION = SensorEntityDescription(
+    key="quality_text",
+    translation_key="quality_text",
 )
 
 PARALLEL_UPDATES = 0
@@ -105,10 +110,14 @@ async def async_setup_entry(
     entry: SunsetHueConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up quality and optional detailed forecast sensors."""
+    """Set up quality, quality-text, and optional detailed forecast sensors."""
+    del hass
     coordinator = entry.runtime_data.coordinator
     keys = _configured_keys(entry)
-    entities: list[SensorEntity] = [SunsetHueQualitySensor(coordinator, entry, key) for key in keys]
+    entities: list[SensorEntity] = []
+    for key in keys:
+        entities.append(SunsetHueQualitySensor(coordinator, entry, key))
+        entities.append(SunsetHueQualityTextSensor(coordinator, entry, key))
     if entry.options.get(CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES):
         entities.extend(
             SunsetHueDetailedSensor(coordinator, entry, key, description, value_getter)
@@ -120,18 +129,47 @@ async def async_setup_entry(
 
 def _configured_keys(entry: SunsetHueConfigEntry) -> list[ForecastKey]:
     """Build every key represented by this entry's entity inventory."""
-    days = int(entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS))
+    start_offset = forecast_start_offset_from_options(entry.options)
+    days = forecast_days_from_options(entry.options)
     events: list[SunsetHueEventType] = []
     if entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE):
         events.append(SunsetHueEventType.SUNRISE)
     if entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET):
         events.append(SunsetHueEventType.SUNSET)
-    return [ForecastKey(day_offset, event_type) for day_offset in range(days) for event_type in events]
+    return [
+        ForecastKey(day_offset, event_type)
+        for day_offset in range(start_offset, start_offset + days)
+        for event_type in events
+    ]
 
 
 def _window_value(window: MagicHourWindow | None, name: str) -> datetime | None:
     """Get an optional magic-hour boundary."""
     return None if window is None else getattr(window, name)
+
+
+def forecast_common_attributes(forecast: EventForecast) -> dict[str, SensorAttributeValue]:
+    """Return shared non-secret attributes for forecast sensors."""
+    attributes: dict[str, SensorAttributeValue] = {
+        "forecast_date": None if forecast.forecast_date is None else forecast.forecast_date.isoformat(),
+        "event_type": forecast.event_type.value,
+        "model_data": forecast.model_data,
+        "response_time": forecast.response_time,
+    }
+    optional: dict[str, SensorAttributeValue] = {
+        "quality_percent": None if forecast.quality is None else round(forecast.quality * 100, 1),
+        "quality_raw": forecast.quality,
+        "quality_text": forecast.quality_text,
+        "event_time": forecast.event_time,
+        "cloud_cover_percent": None if forecast.cloud_cover is None else round(forecast.cloud_cover * 100, 1),
+        "direction_degrees": forecast.direction,
+        "golden_hour_start": _window_value(forecast.golden_hour, "start"),
+        "golden_hour_end": _window_value(forecast.golden_hour, "end"),
+        "blue_hour_start": _window_value(forecast.blue_hour, "start"),
+        "blue_hour_end": _window_value(forecast.blue_hour, "end"),
+    }
+    attributes.update({key: value for key, value in optional.items() if value is not None})
+    return attributes
 
 
 class _SunsetHueForecastSensor(SunsetHueEntity, SensorEntity):
@@ -144,10 +182,13 @@ class _SunsetHueForecastSensor(SunsetHueEntity, SensorEntity):
         super().__init__(coordinator)
         self._key = key
         self._attr_translation_placeholders = {
-            "day": ("today", "tomorrow", "day_after_tomorrow")[key.day_offset],
+            "day": day_translation_key(key.day_offset),
             "event": key.event_type.value,
         }
         self._entry_id = entry.entry_id
+        self._attr_icon = (
+            "mdi:weather-sunset-up" if key.event_type is SunsetHueEventType.SUNRISE else "mdi:weather-sunset"
+        )
 
     @property
     def _forecast(self) -> EventForecast | None:
@@ -182,32 +223,37 @@ class SunsetHueQualitySensor(_SunsetHueForecastSensor):
     def extra_state_attributes(self) -> dict[str, SensorAttributeValue]:
         """Return concise, non-secret forecast context."""
         forecast = self._forecast
-        if forecast is None:
-            return {}
-        attributes: dict[str, SensorAttributeValue] = {
-            "forecast_date": self._forecast_date,
-            "event_type": forecast.event_type.value,
-            "model_data": forecast.model_data,
-            "response_time": forecast.response_time,
-        }
-        optional = {
-            "quality_raw": forecast.quality,
-            "quality_text": forecast.quality_text,
-            "event_time": forecast.event_time,
-            "cloud_cover_percent": None if forecast.cloud_cover is None else round(forecast.cloud_cover * 100, 1),
-            "direction_degrees": forecast.direction,
-            "golden_hour_start": _window_value(forecast.golden_hour, "start"),
-            "golden_hour_end": _window_value(forecast.golden_hour, "end"),
-            "blue_hour_start": _window_value(forecast.blue_hour, "start"),
-            "blue_hour_end": _window_value(forecast.blue_hour, "end"),
-        }
-        attributes.update({key: value for key, value in optional.items() if value is not None})
-        return attributes
+        return {} if forecast is None else forecast_common_attributes(forecast)
+
+
+class SunsetHueQualityTextSensor(_SunsetHueForecastSensor):
+    """Forecast quality description sensor."""
+
+    entity_description = QUALITY_TEXT_DESCRIPTION
+
+    def __init__(
+        self, coordinator: SunsetHueDataUpdateCoordinator, entry: SunsetHueConfigEntry, key: ForecastKey
+    ) -> None:
+        """Initialize the quality-text sensor."""
+        super().__init__(coordinator, entry, key)
+        self._attr_unique_id = f"{entry.entry_id}_{key.event_type.value}_{key.day_offset}_quality_text"
 
     @property
-    def _forecast_date(self) -> str | None:
+    def available(self) -> bool:
+        """Unavailable only when the forecast lacks quality_text."""
+        return super().available and self._forecast is not None and self._forecast.quality_text is not None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the API's raw quality description."""
         forecast = self._forecast
-        return None if forecast is None or forecast.forecast_date is None else forecast.forecast_date.isoformat()
+        return None if forecast is None else forecast.quality_text
+
+    @property
+    def extra_state_attributes(self) -> dict[str, SensorAttributeValue]:
+        """Return concise, non-secret forecast context."""
+        forecast = self._forecast
+        return {} if forecast is None else forecast_common_attributes(forecast)
 
 
 class SunsetHueDetailedSensor(_SunsetHueForecastSensor):

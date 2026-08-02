@@ -58,10 +58,15 @@ class FakeSunsetHueClient:
         self.calls: list[tuple[date, SunsetHueEventType]] = []
 
     async def async_get_event(
-        self, coordinates: Coordinates, event_date: date, event_type: SunsetHueEventType
+        self,
+        coordinates: Coordinates,
+        event_date: date,
+        event_type: SunsetHueEventType,
+        *,
+        forecast: bool = True,
     ) -> EventForecast:
         """Record the request and return the configured outcome."""
-        del coordinates
+        del coordinates, forecast
         self.calls.append((event_date, event_type))
         if isinstance(self.result, Exception):
             raise self.result

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigFlowResult
+from homeassistant.config_entries import ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -23,12 +24,14 @@ from .api import (
     SunsetHueConnectionError,
     SunsetHueInvalidRequestError,
     SunsetHueInvalidResponseError,
+    SunsetHueQuotaExceededError,
     SunsetHueRateLimitError,
 )
 from .const import (
     CONF_API_KEY,
     CONF_CREATE_DETAILED_ENTITIES,
     CONF_FORECAST_DAYS,
+    CONF_FORECAST_START_OFFSET,
     CONF_INCLUDE_SUNRISE,
     CONF_INCLUDE_SUNSET,
     CONF_LATITUDE,
@@ -39,14 +42,17 @@ from .const import (
     CONF_UPDATE_INTERVAL,
     DEFAULT_CREATE_DETAILED_ENTITIES,
     DEFAULT_FORECAST_DAYS,
+    DEFAULT_FORECAST_START_OFFSET,
     DEFAULT_INCLUDE_SUNRISE,
     DEFAULT_INCLUDE_SUNSET,
     DEFAULT_UPDATE_INTERVAL_HOURS,
     DOMAIN,
     MAX_FORECAST_DAYS,
     MIN_HA_VERSION,
+    VALID_FORECAST_START_OFFSETS,
     VALID_UPDATE_INTERVAL_HOURS,
     SunsetHueEventType,
+    is_valid_forecast_window,
 )
 from .models import Coordinates
 
@@ -67,6 +73,54 @@ def _valid_time_zone(value: str) -> str:
     return value
 
 
+def _update_interval_selector_value(value: object) -> str:
+    """Return a valid string value for the update-interval SelectSelector."""
+    if isinstance(value, bool):
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    elif isinstance(value, int):
+        interval = value
+    elif isinstance(value, str):
+        try:
+            interval = int(value)
+        except ValueError:
+            interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    else:
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    if interval not in VALID_UPDATE_INTERVAL_HOURS:
+        interval = DEFAULT_UPDATE_INTERVAL_HOURS
+    return str(interval)
+
+
+def _forecast_start_offset_selector_value(value: object) -> str:
+    """Return a valid string value for the forecast-day SelectSelector."""
+    if isinstance(value, bool):
+        offset = DEFAULT_FORECAST_START_OFFSET
+    elif isinstance(value, int):
+        offset = value
+    elif isinstance(value, str):
+        try:
+            offset = int(value)
+        except ValueError:
+            offset = DEFAULT_FORECAST_START_OFFSET
+    else:
+        offset = DEFAULT_FORECAST_START_OFFSET
+    if offset not in VALID_FORECAST_START_OFFSETS:
+        offset = DEFAULT_FORECAST_START_OFFSET
+    return str(offset)
+
+
+def _default_options(*, start_offset: int = DEFAULT_FORECAST_START_OFFSET) -> dict[str, Any]:
+    """Return options stored for a newly created config entry."""
+    return {
+        CONF_FORECAST_START_OFFSET: start_offset,
+        CONF_FORECAST_DAYS: DEFAULT_FORECAST_DAYS,
+        CONF_INCLUDE_SUNRISE: DEFAULT_INCLUDE_SUNRISE,
+        CONF_INCLUDE_SUNSET: DEFAULT_INCLUDE_SUNSET,
+        CONF_UPDATE_INTERVAL: DEFAULT_UPDATE_INTERVAL_HOURS,
+        CONF_CREATE_DETAILED_ENTITIES: DEFAULT_CREATE_DETAILED_ENTITIES,
+    }
+
+
 USER_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_LOCATION_NAME): selector.TextSelector(),
@@ -76,6 +130,13 @@ USER_SCHEMA = vol.Schema(
         vol.Required(CONF_LATITUDE): vol.Coerce(float),
         vol.Required(CONF_LONGITUDE): vol.Coerce(float),
         vol.Required(CONF_TIME_ZONE): selector.TextSelector(),
+        vol.Required(CONF_FORECAST_START_OFFSET, default=str(DEFAULT_FORECAST_START_OFFSET)): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[str(item) for item in VALID_FORECAST_START_OFFSETS],
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                translation_key="forecast_start_offset",
+            )
+        ),
     }
 )
 
@@ -84,7 +145,7 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle configuration and credential maintenance."""
 
     VERSION = 1
-    MINOR_VERSION = 1
+    MINOR_VERSION = 2
 
     async def async_step_user(self, user_input: Mapping[str, Any] | None = None) -> ConfigFlowResult:
         """Handle initial UI setup."""
@@ -97,13 +158,22 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             normalized = self._normalize_user_input(user_input, errors)
             if normalized is not None:
+                start_offset = int(_forecast_start_offset_selector_value(user_input.get(CONF_FORECAST_START_OFFSET)))
                 if self._location_is_configured(normalized[CONF_LATITUDE], normalized[CONF_LONGITUDE]):
                     return self.async_abort(reason="already_configured")
                 await self.async_set_unique_id(normalized[CONF_LOCATION_ID])
                 self._abort_if_unique_id_configured()
-                error = await _async_validate_connection(self.hass, normalized)
+                error = await _async_validate_connection(
+                    self.hass,
+                    normalized,
+                    forecast_start_offset=start_offset,
+                )
                 if error is None:
-                    return self.async_create_entry(title=normalized[CONF_LOCATION_NAME], data=normalized)
+                    return self.async_create_entry(
+                        title=normalized[CONF_LOCATION_NAME],
+                        data=normalized,
+                        options=_default_options(start_offset=start_offset),
+                    )
                 errors["base"] = error
         return self.async_show_form(
             step_id="user",
@@ -122,7 +192,16 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             api_key = user_input[CONF_API_KEY].strip()
             candidate = {**self._reauth_entry.data, CONF_API_KEY: api_key}
-            error = await _async_validate_connection(self.hass, candidate)
+            start_offset = int(
+                _forecast_start_offset_selector_value(
+                    self._reauth_entry.options.get(CONF_FORECAST_START_OFFSET, DEFAULT_FORECAST_START_OFFSET)
+                )
+            )
+            error = await _async_validate_connection(
+                self.hass,
+                candidate,
+                forecast_start_offset=start_offset,
+            )
             if error is None:
                 self.hass.config_entries.async_update_entry(self._reauth_entry, data=candidate)
                 await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
@@ -155,7 +234,16 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ):
                     errors["base"] = "already_configured"
                 else:
-                    error = await _async_validate_connection(self.hass, normalized)
+                    start_offset = int(
+                        _forecast_start_offset_selector_value(
+                            entry.options.get(CONF_FORECAST_START_OFFSET, DEFAULT_FORECAST_START_OFFSET)
+                        )
+                    )
+                    error = await _async_validate_connection(
+                        self.hass,
+                        normalized,
+                        forecast_start_offset=start_offset,
+                    )
                     if error is None:
                         return self.async_update_reload_and_abort(
                             entry,
@@ -221,12 +309,17 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def _user_defaults(self, user_input: Mapping[str, Any] | None) -> dict[str, Any]:
         """Use Home Assistant's configured location as initial form defaults."""
         if user_input is not None:
-            return dict(user_input)
+            defaults = dict(user_input)
+            defaults[CONF_FORECAST_START_OFFSET] = _forecast_start_offset_selector_value(
+                defaults.get(CONF_FORECAST_START_OFFSET, DEFAULT_FORECAST_START_OFFSET)
+            )
+            return defaults
         return {
             CONF_LOCATION_NAME: self.hass.config.location_name,
             CONF_LATITUDE: self.hass.config.latitude,
             CONF_LONGITUDE: self.hass.config.longitude,
             CONF_TIME_ZONE: self.hass.config.time_zone,
+            CONF_FORECAST_START_OFFSET: str(DEFAULT_FORECAST_START_OFFSET),
         }
 
     @staticmethod
@@ -238,44 +331,76 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return SunsetHueOptionsFlow()
 
 
-class SunsetHueOptionsFlow(config_entries.OptionsFlow):
+class SunsetHueOptionsFlow(OptionsFlow):
     """Options for request scope and entity inventory."""
 
     async def async_step_init(self, user_input: Mapping[str, Any] | None = None) -> ConfigFlowResult:
         """Handle forecast options."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            days = int(user_input[CONF_FORECAST_DAYS])
-            interval = int(user_input[CONF_UPDATE_INTERVAL])
-            if days < 1 or days > MAX_FORECAST_DAYS:
-                errors["base"] = "invalid_forecast_days"
-            elif interval not in VALID_UPDATE_INTERVAL_HOURS:
-                errors["base"] = "invalid_update_interval"
-            elif not user_input[CONF_INCLUDE_SUNRISE] and not user_input[CONF_INCLUDE_SUNSET]:
-                errors["base"] = "no_events_selected"
+            try:
+                days = int(user_input[CONF_FORECAST_DAYS])
+                start_offset = int(user_input[CONF_FORECAST_START_OFFSET])
+                interval = int(user_input[CONF_UPDATE_INTERVAL])
+                include_sunrise = user_input[CONF_INCLUDE_SUNRISE]
+                include_sunset = user_input[CONF_INCLUDE_SUNSET]
+                create_detailed_entities = user_input[CONF_CREATE_DETAILED_ENTITIES]
+            except KeyError, TypeError, ValueError:
+                errors["base"] = "unknown"
             else:
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        **user_input,
-                        CONF_FORECAST_DAYS: days,
-                        CONF_UPDATE_INTERVAL: interval,
-                    },
-                )
-        defaults = {
-            CONF_FORECAST_DAYS: self.config_entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS),
-            CONF_INCLUDE_SUNRISE: self.config_entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE),
-            CONF_INCLUDE_SUNSET: self.config_entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET),
-            CONF_UPDATE_INTERVAL: self.config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
-            CONF_CREATE_DETAILED_ENTITIES: self.config_entry.options.get(
-                CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES
-            ),
-        }
+                if not is_valid_forecast_window(start_offset, days):
+                    errors["base"] = "forecast_window_exceeds_horizon"
+                elif interval not in VALID_UPDATE_INTERVAL_HOURS:
+                    errors["base"] = "invalid_update_interval"
+                elif not include_sunrise and not include_sunset:
+                    errors["base"] = "no_events_selected"
+                elif (
+                    not isinstance(include_sunrise, bool)
+                    or not isinstance(include_sunset, bool)
+                    or not isinstance(create_detailed_entities, bool)
+                ):
+                    errors["base"] = "unknown"
+                else:
+                    return self.async_create_entry(
+                        data={
+                            CONF_FORECAST_START_OFFSET: start_offset,
+                            CONF_FORECAST_DAYS: days,
+                            CONF_INCLUDE_SUNRISE: include_sunrise,
+                            CONF_INCLUDE_SUNSET: include_sunset,
+                            CONF_UPDATE_INTERVAL: interval,
+                            CONF_CREATE_DETAILED_ENTITIES: create_detailed_entities,
+                        },
+                    )
         return self.async_show_form(
             step_id="init",
-            data_schema=self.add_suggested_values_to_schema(_options_schema(), defaults),
+            data_schema=self.add_suggested_values_to_schema(
+                _options_schema(),
+                _options_suggested_values(self.config_entry, user_input),
+            ),
             errors=errors,
         )
+
+
+def _options_suggested_values(
+    config_entry: config_entries.ConfigEntry,
+    user_input: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build options-form suggested values with selector-compatible types."""
+    suggested = {
+        CONF_FORECAST_START_OFFSET: config_entry.options.get(CONF_FORECAST_START_OFFSET, DEFAULT_FORECAST_START_OFFSET),
+        CONF_FORECAST_DAYS: config_entry.options.get(CONF_FORECAST_DAYS, DEFAULT_FORECAST_DAYS),
+        CONF_INCLUDE_SUNRISE: config_entry.options.get(CONF_INCLUDE_SUNRISE, DEFAULT_INCLUDE_SUNRISE),
+        CONF_INCLUDE_SUNSET: config_entry.options.get(CONF_INCLUDE_SUNSET, DEFAULT_INCLUDE_SUNSET),
+        CONF_UPDATE_INTERVAL: config_entry.options.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL_HOURS),
+        CONF_CREATE_DETAILED_ENTITIES: config_entry.options.get(
+            CONF_CREATE_DETAILED_ENTITIES, DEFAULT_CREATE_DETAILED_ENTITIES
+        ),
+    }
+    if user_input is not None:
+        suggested.update(dict(user_input))
+    suggested[CONF_FORECAST_START_OFFSET] = _forecast_start_offset_selector_value(suggested[CONF_FORECAST_START_OFFSET])
+    suggested[CONF_UPDATE_INTERVAL] = _update_interval_selector_value(suggested[CONF_UPDATE_INTERVAL])
+    return suggested
 
 
 def _reconfigure_schema() -> vol.Schema:
@@ -294,6 +419,13 @@ def _options_schema() -> vol.Schema:
     """Return the configurable non-connection preferences."""
     return vol.Schema(
         {
+            vol.Required(CONF_FORECAST_START_OFFSET): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[str(item) for item in VALID_FORECAST_START_OFFSETS],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="forecast_start_offset",
+                )
+            ),
             vol.Required(CONF_FORECAST_DAYS): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=1,
@@ -315,15 +447,22 @@ def _options_schema() -> vol.Schema:
     )
 
 
-async def _async_validate_connection(hass: HomeAssistant, data: Mapping[str, Any]) -> str | None:
-    """Validate credentials and connectivity with a documented lightweight request."""
+async def _async_validate_connection(
+    hass: HomeAssistant,
+    data: Mapping[str, Any],
+    *,
+    forecast_start_offset: int = DEFAULT_FORECAST_START_OFFSET,
+) -> str | None:
+    """Validate credentials with a lightweight no-model request for the target day."""
     try:
         time_zone = ZoneInfo(data[CONF_TIME_ZONE])
         client = SunsetHueClient(async_get_clientsession(hass), data[CONF_API_KEY])
+        event_date = dt_util.now(time_zone).date() + timedelta(days=forecast_start_offset)
         await client.async_get_event(
             Coordinates(float(data[CONF_LATITUDE]), float(data[CONF_LONGITUDE])),
-            dt_util.now(time_zone).date(),
+            event_date,
             SunsetHueEventType.SUNSET,
+            forecast=False,
         )
     except SunsetHueAuthError:
         return "invalid_auth"
@@ -331,8 +470,10 @@ async def _async_validate_connection(hass: HomeAssistant, data: Mapping[str, Any
         return "cannot_connect"
     except SunsetHueRateLimitError:
         return "rate_limited"
-    except SunsetHueInvalidRequestError:
-        return "invalid_coordinates"
+    except SunsetHueQuotaExceededError:
+        return "quota_exceeded"
+    except SunsetHueInvalidRequestError as err:
+        return "invalid_coordinates" if err.is_coordinate_error else "invalid_request"
     except SunsetHueInvalidResponseError:
         return "invalid_response"
     except KeyError, TypeError, ValueError, ZoneInfoNotFoundError:
