@@ -20,6 +20,7 @@ from custom_components.sunsethue.api import (
 )
 from custom_components.sunsethue.const import (
     CONF_FORECAST_DAYS,
+    CONF_FORECAST_START_OFFSET,
     CONF_INCLUDE_SUNRISE,
     CONF_INCLUDE_SUNSET,
     CONF_TIME_ZONE,
@@ -42,13 +43,13 @@ def test_iter_sunsethue_errors_flattens_nested_groups() -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_plan_requests_six_forecasts(hass, mock_config_entry) -> None:
-    """Three days by two enabled event types produces six requests."""
+async def test_default_plan_requests_two_forecasts(hass, mock_config_entry) -> None:
+    """Today by two enabled event types produces two requests."""
     client = FakeSunsetHueClient(make_forecast())
     coordinator = SunsetHueDataUpdateCoordinator(hass, mock_config_entry, client)  # type: ignore[arg-type]
     data = await coordinator._async_update_data()
-    assert len(client.calls) == 6
-    assert len(data.forecasts) == 6
+    assert len(client.calls) == 2
+    assert len(data.forecasts) == 2
     assert {forecast.forecast_date for forecast in data.forecasts.values()} == {item[0] for item in client.calls}
 
 
@@ -181,6 +182,12 @@ async def test_coordinator_limits_requests_to_three(hass, mock_config_entry) -> 
     """A full grid never sends more than three concurrent API calls."""
     active = 0
     maximum_active = 0
+    entry = MockConfigEntry(
+        domain=mock_config_entry.domain,
+        title=mock_config_entry.title,
+        data=mock_config_entry.data,
+        options={CONF_FORECAST_START_OFFSET: 0, CONF_FORECAST_DAYS: 3},
+    )
 
     class Client:
         async def async_get_event(self, _coordinates, _event_date, event_type):
@@ -191,7 +198,7 @@ async def test_coordinator_limits_requests_to_three(hass, mock_config_entry) -> 
             active -= 1
             return make_forecast(event_type)
 
-    await SunsetHueDataUpdateCoordinator(hass, mock_config_entry, Client())._async_update_data()  # type: ignore[arg-type]
+    await SunsetHueDataUpdateCoordinator(hass, entry, Client())._async_update_data()  # type: ignore[arg-type]
     assert maximum_active == 3
 
 

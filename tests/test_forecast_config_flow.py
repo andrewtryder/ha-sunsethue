@@ -12,6 +12,7 @@ from voluptuous_serialize import convert
 from custom_components.sunsethue import config_flow
 from custom_components.sunsethue.config_flow import (
     _async_validate_connection,
+    _forecast_days_selector_value,
     _forecast_start_offset_selector_value,
     _update_interval_selector_value,
 )
@@ -36,11 +37,20 @@ def _suggested_values(schema) -> dict:
 
 @pytest.mark.parametrize(
     ("stored", "expected"),
-    [(0, "0"), (1, "1"), (2, "2"), ("1", "1"), (None, "1"), (5, "1"), ("bad", "1"), (True, "1")],
+    [(0, "0"), (1, "1"), (2, "2"), ("1", "1"), (None, "0"), (5, "0"), ("bad", "0"), (True, "0")],
 )
 def test_forecast_start_offset_selector_value(stored, expected) -> None:
     """Forecast-day selector values are normalized to valid strings."""
     assert _forecast_start_offset_selector_value(stored) == expected
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [(1, "1"), (2, "2"), (3, "3"), ("2", "2"), (None, "1"), (0, "1"), (9, "1"), ("bad", "1"), (True, "1")],
+)
+def test_forecast_days_selector_value(stored, expected) -> None:
+    """Forecast-days selector values are normalized to valid strings."""
+    assert _forecast_days_selector_value(stored) == expected
 
 
 @pytest.mark.parametrize(
@@ -53,11 +63,11 @@ def test_update_interval_selector_value(stored, expected) -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_form_defaults_to_tomorrow(hass) -> None:
-    """The initial form suggests tomorrow as the forecast day."""
+async def test_user_form_defaults_to_today(hass) -> None:
+    """The initial form suggests today as the forecast day."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     suggested = _suggested_values(result["data_schema"])
-    assert suggested[CONF_FORECAST_START_OFFSET] == "1"
+    assert suggested[CONF_FORECAST_START_OFFSET] == "0"
     convert(result["data_schema"], custom_serializer=cv.custom_serializer)
 
 
@@ -165,8 +175,9 @@ async def test_user_flow_quota_and_invalid_request(hass, aioclient_mock) -> None
 @pytest.mark.parametrize(
     ("offset", "days", "error"),
     [
-        ("1", 3, "forecast_window_exceeds_horizon"),
-        ("2", 2, "forecast_window_exceeds_horizon"),
+        ("1", "3", "forecast_window_exceeds_horizon"),
+        ("2", "2", "forecast_window_exceeds_horizon"),
+        ("2", "3", "forecast_window_exceeds_horizon"),
     ],
 )
 async def test_options_rejects_window_beyond_horizon(hass, mock_config_entry, offset, days, error) -> None:
@@ -188,12 +199,13 @@ async def test_options_rejects_window_beyond_horizon(hass, mock_config_entry, of
     assert result["errors"] == {"base": error}
     suggested = _suggested_values(result["data_schema"])
     assert suggested[CONF_FORECAST_START_OFFSET] == offset
+    assert suggested[CONF_FORECAST_DAYS] == days
     assert suggested[CONF_UPDATE_INTERVAL] == "6"
 
 
 @pytest.mark.asyncio
-async def test_options_integer_interval_suggests_string(hass, mock_config_entry) -> None:
-    """Stored integer intervals round-trip through the string SelectSelector."""
+async def test_options_integer_fields_suggest_strings(hass, mock_config_entry) -> None:
+    """Stored integer options round-trip through string SelectSelectors."""
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
     entry = MockConfigEntry(
@@ -204,6 +216,9 @@ async def test_options_integer_interval_suggests_string(hass, mock_config_entry)
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     suggested = _suggested_values(result["data_schema"])
+    assert suggested[CONF_FORECAST_START_OFFSET] == "0"
+    assert suggested[CONF_FORECAST_DAYS] == "3"
     assert suggested[CONF_UPDATE_INTERVAL] == "6"
+    assert isinstance(suggested[CONF_FORECAST_DAYS], str)
     assert isinstance(suggested[CONF_UPDATE_INTERVAL], str)
     result["data_schema"](dict(suggested))

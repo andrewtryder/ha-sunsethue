@@ -45,7 +45,7 @@ portal.
 **Daily quota exceeded:** the API rejected requests because the account's daily
 credit allowance is exhausted. Setup validation uses `forecast=false` so
 configuring a location is cheap; ongoing refresh uses `forecast=true` for
-quality data. New installations default to tomorrow only (two requests when
+quality data. New installations default to today only (two requests when
 both sunrise and sunset are enabled). Expand the forecast window carefully in
 options. Wait for the quota to reset or increase allowance in the portal.
 

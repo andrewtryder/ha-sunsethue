@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Set up SunsetHue",
-        "description": "Add one forecast location. New installations default to tomorrow's forecast.",
+        "description": "Add one forecast location. New installations default to today's forecast.",
         "data": {
           "location_name": "Location name",
           "api_key": "API key",
@@ -19,7 +19,7 @@
           "latitude": "Decimal degrees between -90 and 90 for the forecast location.",
           "longitude": "Decimal degrees between -180 and 180 for the forecast location.",
           "time_zone": "An IANA time zone, such as America/New_York, used to calculate local forecast dates.",
-          "forecast_start_offset": "Which local day to forecast. Tomorrow is the default. Each selected event type for that day uses one API request per refresh. The API supports at most three days from today."
+          "forecast_start_offset": "Which local day to forecast. Today is the default. Each selected event type for that day uses one API request per refresh. The API supports at most three days from today."
         }
       },
       "reauth_confirm": {
@@ -76,8 +76,8 @@
           "create_detailed_entities": "Create detailed forecast entities"
         },
         "data_description": {
-          "forecast_start_offset": "The first local day to request. Tomorrow is the default for new installations. The API supports today, tomorrow, and the day after tomorrow.",
-          "forecast_days": "How many consecutive local dates to request starting from the first forecast day. Each selected event for each date uses an API request per refresh. The start day plus this count cannot exceed three days from today.",
+          "forecast_start_offset": "The first local date to request. Today is the default for new installations.",
+          "forecast_days": "The number of consecutive dates beginning with the first forecast day. SunsetHue supports today through the day after tomorrow. Each enabled event type uses one API request for each selected date per refresh.",
           "include_sunrise": "Include sunrise forecasts. At least one event type must remain enabled.",
           "include_sunset": "Include sunset forecasts. At least one event type must remain enabled.",
           "update_interval": "How often SunsetHue is queried. A six-hour interval follows the API cache guidance; shorter intervals can use more API credits.",
@@ -99,6 +99,13 @@
         "0": "Today",
         "1": "Tomorrow",
         "2": "Day after tomorrow"
+      }
+    },
+    "forecast_days": {
+      "options": {
+        "1": "1 day",
+        "2": "2 consecutive days",
+        "3": "3 consecutive days"
       }
     }
   },

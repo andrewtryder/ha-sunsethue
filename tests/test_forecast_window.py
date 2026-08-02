@@ -36,6 +36,12 @@ def _entry(mock_config_entry, **options) -> MockConfigEntry:
     ("options", "expected_offsets", "expected_events", "count"),
     [
         (
+            {CONF_FORECAST_START_OFFSET: 0, CONF_FORECAST_DAYS: 1},
+            {0},
+            {SunsetHueEventType.SUNRISE, SunsetHueEventType.SUNSET},
+            2,
+        ),
+        (
             {CONF_FORECAST_START_OFFSET: 1, CONF_FORECAST_DAYS: 1},
             {1},
             {SunsetHueEventType.SUNRISE, SunsetHueEventType.SUNSET},
