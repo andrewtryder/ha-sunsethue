@@ -9,7 +9,7 @@ reviewed, endorsed, nor supported by Home Assistant or Sunsethue.
 
 ## Requirements
 
-- Home Assistant 2026.3.0 or newer.
+- Home Assistant 2026.3.0 or newer (Python 3.14 or newer).
 - A Sunsethue API key from the [API portal](https://sunsethue.com/dev-api/portal).
 - HACS for the easiest installation, or filesystem access for manual installation.
 
@@ -21,11 +21,12 @@ Assistant. Do not install `main` for normal use. For a manual installation,
 copy `custom_components/sunsethue` from a release into
 `<config>/custom_components/sunsethue`, then restart.
 
-Add **SunsetHue** from *Settings → Devices & services → Add integration*.
-Supply a display name, API key, latitude, longitude, and an IANA time zone such
-as `America/New_York`. Configure another entry for each location. Location
-coordinates are validated by Sunsethue and duplicate normalized locations are
-rejected.
+After the restart, add **SunsetHue** from *Settings → Devices & services → Add
+integration* (not *Devices → Add device*). Supply a display name, API key,
+latitude, longitude, and an IANA time zone such as `America/New_York`. Configure
+another entry for each location. Location coordinates are validated by Sunsethue
+and duplicate normalized locations are rejected. See
+[troubleshooting](docs/troubleshooting.md) if the integration does not appear.
 
 ## Entities and updates
 

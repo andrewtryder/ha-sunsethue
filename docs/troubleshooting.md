@@ -1,5 +1,13 @@
 # Troubleshooting
 
+**Integration not in Add integration:** HACS only downloads the files. Restart
+Home Assistant after install, then open *Settings → Devices & services → Add
+integration* and search for **SunsetHue**. Do not use *Devices → Add device*;
+that list is for discovered hardware, and SunsetHue is a service integration.
+Confirm Home Assistant is **2026.3.0 or newer** (Python **3.14+**) under
+*Settings → About*. If it still does not appear, check *Settings → System →
+Logs* for `sunsethue`, `SyntaxError`, or `Error loading custom integration`.
+
 **Authentication failed:** regenerate or copy the API key from the Sunsethue API
 portal, then use Home Assistant's reconfigure/reauthenticate prompt. Never put
 the key in an issue or log.
