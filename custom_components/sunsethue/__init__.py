@@ -41,7 +41,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) ->
     """Set up SunsetHue from a config entry."""
     if not is_supported_home_assistant_version():
         raise ConfigEntryError(f"SunsetHue requires Home Assistant {MIN_HA_VERSION} or newer")
-    time_zone = await dt_util.async_get_time_zone(str(entry.data[CONF_TIME_ZONE]))
+    try:
+        time_zone_key = str(entry.data[CONF_TIME_ZONE])
+        time_zone = await dt_util.async_get_time_zone(time_zone_key)
+    except (KeyError, TypeError, ValueError) as err:
+        raise ConfigEntryError("Invalid SunsetHue time zone") from err
     if time_zone is None:
         raise ConfigEntryError("Invalid SunsetHue time zone")
     client = SunsetHueClient(async_get_clientsession(hass), entry.data[CONF_API_KEY])

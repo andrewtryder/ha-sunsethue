@@ -231,12 +231,26 @@ async def test_reauth_with_unchanged_api_key_schedules_reload(
 
 
 @pytest.mark.asyncio
-async def test_setup_rejects_invalid_time_zone(hass, mock_config_entry, monkeypatch) -> None:
-    """Entry setup fails closed when the stored IANA zone cannot be resolved."""
+@pytest.mark.parametrize(
+    "zone_result",
+    [None, ValueError("malformed"), TypeError("bad type")],
+)
+async def test_setup_rejects_invalid_time_zone(hass, mock_config_entry, monkeypatch, zone_result) -> None:
+    """Entry setup fails closed for unresolved or malformed stored zones."""
 
-    async def _async_none(_key: str):
-        return None
+    async def _async_zone(_key: str):
+        if isinstance(zone_result, Exception):
+            raise zone_result
+        return zone_result
 
-    monkeypatch.setattr(sunsethue.dt_util, "async_get_time_zone", _async_none)
+    client = MagicMock()
+    coordinator = MagicMock()
+    monkeypatch.setattr(sunsethue.dt_util, "async_get_time_zone", _async_zone)
+    monkeypatch.setattr(sunsethue, "SunsetHueClient", client)
+    monkeypatch.setattr(sunsethue, "SunsetHueDataUpdateCoordinator", coordinator)
+
     with pytest.raises(ConfigEntryError, match="time zone"):
         await sunsethue.async_setup_entry(hass, mock_config_entry)
+
+    client.assert_not_called()
+    coordinator.assert_not_called()
