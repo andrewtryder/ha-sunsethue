@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
 
-from custom_components.sunsethue.api import SunsetHueClient
 from custom_components.sunsethue.const import (
     CONF_API_KEY,
     CONF_LATITUDE,
@@ -21,21 +21,27 @@ from custom_components.sunsethue.const import (
 )
 from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator
 from custom_components.sunsethue.models import Coordinates, EventForecast
-from custom_components.sunsethue.types import SunsetHueConfigEntry
 
 type ConfigEntryData = dict[str, str | float]
 
 
+class ConfigEntryDataSource(Protocol):
+    """Minimal entry shape needed to resolve a test time zone."""
+
+    @property
+    def data(self) -> Mapping[str, object]: ...
+
+
 def make_coordinator(
     hass: HomeAssistant,
-    entry: SunsetHueConfigEntry | Any,
-    client: SunsetHueClient | Any,
+    entry: ConfigEntryDataSource,
+    client: object,
 ) -> SunsetHueDataUpdateCoordinator:
     """Build a coordinator with a synchronously resolved test time zone."""
     return SunsetHueDataUpdateCoordinator(
         hass,
-        entry,
-        client,
+        entry,  # type: ignore[arg-type]
+        client,  # type: ignore[arg-type]
         ZoneInfo(str(entry.data[CONF_TIME_ZONE])),
     )
 
