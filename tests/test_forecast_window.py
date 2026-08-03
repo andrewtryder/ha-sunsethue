@@ -17,9 +17,8 @@ from custom_components.sunsethue.const import (
     CONF_INCLUDE_SUNSET,
     SunsetHueEventType,
 )
-from custom_components.sunsethue.coordinator import SunsetHueDataUpdateCoordinator
 from custom_components.sunsethue.models import ForecastKey, SunsetHueCoordinatorData
-from tests.helpers import FakeSunsetHueClient, make_forecast
+from tests.helpers import FakeSunsetHueClient, make_coordinator, make_forecast
 
 
 def _entry(mock_config_entry, **options) -> MockConfigEntry:
@@ -105,7 +104,7 @@ async def test_forecast_window_request_plan(
         lambda _time_zone: datetime(2026, 8, 2, 12, tzinfo=_time_zone),
     )
     client = FakeSunsetHueClient(make_forecast())
-    data = await SunsetHueDataUpdateCoordinator(hass, entry, client)._async_update_data()  # type: ignore[arg-type]
+    data = await make_coordinator(hass, entry, client)._async_update_data()
     assert len(client.calls) == count
     assert {key.day_offset for key in data.forecasts} == expected_offsets
     assert {key.event_type for key in data.forecasts} == expected_events
@@ -120,10 +119,10 @@ async def test_quota_exceeded_preserves_prior_data_without_reauth(hass, mock_con
         **{CONF_FORECAST_START_OFFSET: 1, CONF_FORECAST_DAYS: 1, CONF_INCLUDE_SUNRISE: False},
     )
     prior = SunsetHueCoordinatorData.from_forecasts({ForecastKey(1, SunsetHueEventType.SUNSET): make_forecast()})
-    coordinator = SunsetHueDataUpdateCoordinator(
+    coordinator = make_coordinator(
         hass,
         entry,
-        FakeSunsetHueClient(SunsetHueQuotaExceededError()),  # type: ignore[arg-type]
+        FakeSunsetHueClient(SunsetHueQuotaExceededError()),
     )
     coordinator.data = prior
     with pytest.raises(UpdateFailed, match="quota") as caught:

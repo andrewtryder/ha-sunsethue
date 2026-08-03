@@ -65,13 +65,12 @@ def _normalize_coordinate(value: float) -> str:
     return f"{value:.5f}"
 
 
-def _valid_time_zone(value: str) -> str:
-    """Validate an IANA time-zone key."""
+async def _async_resolve_time_zone(key: str) -> ZoneInfo | None:
+    """Resolve an IANA zone without blocking the event loop."""
     try:
-        ZoneInfo(value)
-    except (TypeError, ValueError, ZoneInfoNotFoundError) as err:
-        raise vol.Invalid("invalid_time_zone") from err
-    return value
+        return await dt_util.async_get_time_zone(key)
+    except TypeError, ValueError:
+        return None
 
 
 def _format_utc_offset(offset: timedelta | None) -> str:
@@ -337,7 +336,6 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(),
                     data_updates={CONF_API_KEY: api_key},
-                    reload_even_if_entry_is_unchanged=False,
                 )
             errors["base"] = error
         return self.async_show_form(
@@ -417,8 +415,11 @@ class SunsetHueConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors["base"] = "invalid_coordinates"
             return None
         try:
-            time_zone = _valid_time_zone(str(user_input[CONF_TIME_ZONE]))
-        except KeyError, vol.Invalid:
+            time_zone = str(user_input[CONF_TIME_ZONE]).strip()
+        except KeyError:
+            errors["base"] = "invalid_time_zone"
+            return None
+        if not time_zone:
             errors["base"] = "invalid_time_zone"
             return None
         location_name = str(user_input.get(CONF_LOCATION_NAME, "")).strip()
@@ -583,7 +584,9 @@ async def _async_validate_connection(
 ) -> str | None:
     """Validate credentials with a lightweight no-model request for the target day."""
     try:
-        time_zone = ZoneInfo(data[CONF_TIME_ZONE])
+        time_zone = await _async_resolve_time_zone(str(data[CONF_TIME_ZONE]))
+        if time_zone is None:
+            return "invalid_time_zone"
         client = SunsetHueClient(async_get_clientsession(hass), data[CONF_API_KEY])
         event_date = dt_util.now(time_zone).date() + timedelta(days=forecast_start_offset)
         await client.async_get_event(
@@ -604,7 +607,7 @@ async def _async_validate_connection(
         return "invalid_coordinates" if err.is_coordinate_error else "invalid_request"
     except SunsetHueInvalidResponseError:
         return "invalid_response"
-    except KeyError, TypeError, ValueError, ZoneInfoNotFoundError:
+    except KeyError, TypeError, ValueError:
         return "invalid_time_zone"
     except Exception:  # Intentional UI boundary; never expose unexpected details.
         _LOGGER.exception("Unexpected SunsetHue validation failure")

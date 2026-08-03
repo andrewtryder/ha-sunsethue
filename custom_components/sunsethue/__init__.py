@@ -10,6 +10,7 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
 
 from .api import SunsetHueClient
 from .const import (
@@ -17,6 +18,7 @@ from .const import (
     CONF_FORECAST_DAYS,
     CONF_FORECAST_START_OFFSET,
     CONF_LOCATION_ID,
+    CONF_TIME_ZONE,
     LEGACY_FORECAST_DAYS,
     LEGACY_FORECAST_START_OFFSET,
     MIN_HA_VERSION,
@@ -39,8 +41,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) ->
     """Set up SunsetHue from a config entry."""
     if not is_supported_home_assistant_version():
         raise ConfigEntryError(f"SunsetHue requires Home Assistant {MIN_HA_VERSION} or newer")
+    try:
+        time_zone_key = str(entry.data[CONF_TIME_ZONE])
+        time_zone = await dt_util.async_get_time_zone(time_zone_key)
+    except (KeyError, TypeError, ValueError) as err:
+        raise ConfigEntryError("Invalid SunsetHue time zone") from err
+    if time_zone is None:
+        raise ConfigEntryError("Invalid SunsetHue time zone")
     client = SunsetHueClient(async_get_clientsession(hass), entry.data[CONF_API_KEY])
-    coordinator = SunsetHueDataUpdateCoordinator(hass, entry, client)
+    coordinator = SunsetHueDataUpdateCoordinator(hass, entry, client, time_zone)
     await coordinator.async_config_entry_first_refresh()
     coordinator.async_schedule_midnight_refresh()
     entry.runtime_data = SunsetHueRuntimeData(
