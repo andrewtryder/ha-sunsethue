@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=83.0.0"]
+requires = ["setuptools>=84.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -12,8 +12,8 @@ license = {text = "MIT"}
 [dependency-groups]
 dev = [
     "homeassistant==2026.3.4",
-    "mypy==2.3.0",
-    "pre-commit==4.6.1",
+    "mypy==2.3.1",
+    "pre-commit==4.6.2",
     "pytest==9.0.0",
     "pytest-cov==7.0.0",
     "pytest-homeassistant-custom-component==0.13.320",
