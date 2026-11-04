@@ -65,6 +65,7 @@ uv run --locked python scripts/verify_hacs_distribution.py
 
 echo "==> [7/8] Running Python test suite with branch coverage (>=96% gate)"
 uv run --locked python -m pytest
+uv run --locked python -c 'import json; t = json.load(open("coverage.json"))["totals"]; n = t["num_statements"]; c = t["covered_lines"]; print(f"Statement coverage: {c}/{n}"); assert n and c * 100 >= n * 90, "Statement coverage must be at least 90%"'
 
 echo "==> [8/8] Checking for changes made by validation"
 check_changes
