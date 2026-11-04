@@ -14,6 +14,12 @@ uv run pre-commit install
 Useful checks:
 
 ```bash
+./scripts/validate-local.sh
+```
+
+Individual checks can also be run manually:
+
+```bash
 uv run pre-commit run --all-files
 uv run python -m pytest
 uv run --group dev ruff check .

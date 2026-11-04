@@ -33,6 +33,9 @@ jobs:
           pytest-homeassistant-custom-component pytest-cov
       - name: Run tests with branch coverage
         run: .venv/bin/python -m pytest
+      - name: Enforce statement coverage
+        run: |
+          .venv/bin/python -c 'import json; t = json.load(open("coverage.json"))["totals"]; n = t["num_statements"]; c = t["covered_lines"]; print(f"Statement coverage: {c}/{n}"); assert n and c * 100 >= n * 90, "Statement coverage must be at least 90%"'
       - name: Add coverage summary
         if: always()
         run: |
