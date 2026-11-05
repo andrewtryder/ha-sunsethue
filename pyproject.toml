@@ -39,6 +39,8 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = [
     "--strict-markers",
+    "--disable-socket",
+    "--allow-unix-socket",
     "--cov=custom_components.sunsethue",
     "--cov-report=term-missing:skip-covered",
     "--cov-report=xml:coverage.xml",
