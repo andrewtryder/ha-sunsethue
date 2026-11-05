@@ -1,180 +1,68 @@
-# SunsetHue
+# SunsetHue for Home Assistant
 
-SunsetHue adds sunrise and sunset quality forecasts to Home Assistant using the
-[SunsetHue developer API](https://sunsethue.com/dev-api). It provides quality
-scores, cloud cover, event direction, event time, and blue/golden-hour
-information for up to three local dates.
+<img src="custom_components/sunsethue/brand/icon.png" alt="SunsetHue integration icon" width="100">
 
-> This is an unofficial community integration and is not supported by
-> Home Assistant or SunsetHue.
+See sunrise and sunset quality forecasts in Home Assistant, including event times and sky conditions for your chosen locations.
 
-[![Open your Home Assistant instance and add this repository to HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-sunsethue&category=integration)
+[![Latest release](https://img.shields.io/github/v/release/andrewtryder/ha-sunsethue?style=flat-square)](https://github.com/andrewtryder/ha-sunsethue/releases/latest)
+[![Tests on main](https://img.shields.io/github/actions/workflow/status/andrewtryder/ha-sunsethue/test.yml?branch=main&style=flat-square&label=tests)](https://github.com/andrewtryder/ha-sunsethue/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/andrewtryder/ha-sunsethue?style=flat-square)](LICENSE)
+[![HACS custom integration](https://img.shields.io/badge/HACS-Custom-orange?style=flat-square)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-sunsethue&category=integration)
 
 ![SunsetHue service page in Home Assistant showing quality sensors and activity](docs/images/home-assistant-service.png)
 
-## Requirements
+## What can I do with it?
 
-- Home Assistant 2026.3.0 or newer
-- A SunsetHue API key from the [developer portal](https://sunsethue.com/dev-api/portal)
-- [HACS](https://hacs.xyz/), or filesystem access for a manual install
+- See forecast quality scores and descriptions for sunrise and sunset.
+- Show optional cloud cover, direction, event time, and blue- and golden-hour information.
+- Create [dashboard cards](docs/dashboard-examples.md) and [automations](docs/automation-examples.md), such as a notification for a promising sunset.
 
-## Installation
+## Requirements and compatibility
 
-SunsetHue is a HACS custom integration (not an add-on).
+- Home Assistant **2026.3.0 or newer** and HACS, or filesystem access for a manual installation.
+- A SunsetHue API key from the [developer portal](https://sunsethue.com/dev-api/portal).
+- Forecasts cover up to three local dates: today, tomorrow, and the day after tomorrow, in the selected location's time zone.
 
-### HACS
+## Install with HACS
 
-1. In HACS, add `https://github.com/andrewtryder/ha-sunsethue` as an Integration
-   custom repository.
-2. Install a numbered **SunsetHue** release (do not install `main` for normal
-   use).
+1. In HACS, add `https://github.com/andrewtryder/ha-sunsethue` as a custom repository in the **Integration** category, or use the HACS badge above.
+2. Install a numbered **SunsetHue** release; do not install `main` for normal use.
 3. Restart Home Assistant.
-4. Go to *Settings → Devices & services → Add integration*, search for
-   **SunsetHue**, and complete setup.
 
-HACS installs from the tagged repository source using the standard
-`custom_components/sunsethue` layout.
+For manual installation, copy `custom_components/sunsethue` from a release into `<config>/custom_components/sunsethue`, confirm `manifest.json` is directly inside that folder, and restart Home Assistant.
 
-### Manual installation
+## First-time setup
 
-1. Copy `custom_components/sunsethue` from a release into
-   `<config>/custom_components/sunsethue`.
-2. Confirm `manifest.json` is at
-   `<config>/custom_components/sunsethue/manifest.json`.
-3. Restart Home Assistant.
-4. Add the integration from *Settings → Devices & services → Add integration*.
+1. Go to **Settings → Devices & services → Add integration** and select **SunsetHue**.
+2. Enter a location name, API key, latitude, longitude, time zone, and first forecast day.
+3. Add a separate entry for each location. Duplicate normalized coordinates are rejected.
+4. In the integration options, choose consecutive days, sunrise and/or sunset, refresh interval, and optional detailed entities. The selected days must remain within today through the day after tomorrow.
 
-## Configuration
+New installations request today’s sunrise and sunset every six hours. Two event forecasts per refresh are requested by default.
 
-When you add a location, provide:
+## What you'll see in Home Assistant
 
-- **Location name** — display name for this entry
-- **API key** — from the SunsetHue developer portal
-- **Latitude and longitude** — WGS84 decimal coordinates for the forecast site
-- **Time zone** — searchable IANA dropdown, preselected to Home Assistant's configured zone (dates use this local time)
-- **Initial forecast day** — which local date to start from
+Quality percentage and quality text sensors are enabled by default. Optional sensors expose event time, cloud cover, direction, and blue/golden-hour boundaries when the API supplies them. A missing forecast field can make its sensor unavailable; the API may have no model data for a date.
 
-A **forecast day** is one local calendar date relative to the location's time
-zone: **Today**, **Tomorrow**, or **Day after tomorrow**. New installations
-request today's sunrise and sunset forecasts by default.
+The number of API calls per refresh is **selected dates × enabled event types**. More dates and event types consume more quota. Check the [developer portal](https://sunsethue.com/dev-api/portal) for current pricing and limits and [API usage](docs/api-usage.md) for examples.
 
-After setup, open the integration options to change:
+## Common problems and troubleshooting
 
-- The first forecast day
-- How many consecutive forecast days to request
-- Whether sunrise, sunset, or both are enabled
-- The refresh interval (6, 12, or 24 hours)
-- Optional detailed entities
+- Restart Home Assistant after installing before searching for the integration.
+- Check that files are directly under `custom_components/sunsethue`, rather than in a nested folder.
+- Check **Settings → System → Logs** for `sunsethue` errors. Quota exhaustion is reported separately from invalid coordinates or authentication failures.
+- See the [troubleshooting guide](docs/troubleshooting.md) for additional help.
 
-The consecutive-day count begins with the first forecast day and must stay
-within today through the day after tomorrow. For example, starting tomorrow
-with two consecutive days requests tomorrow and the day after tomorrow.
+## Limitations, safety, and privacy
 
-New installations default to:
+Forecasts are estimates and depend on the service's available model data. The API key is stored in the config entry and sent to SunsetHue over HTTPS. Diagnostics redact credentials and coordinates; review any diagnostic file before sharing it. Never publish an API key, exact address, or unreviewed diagnostics.
 
-- Today as the first forecast day
-- One forecast date
-- Sunrise and sunset enabled
-- Two forecast API calls per refresh
-- A six-hour refresh interval
+## More documentation
 
-Add a separate config entry for each location. Duplicate normalized coordinates
-are rejected.
+- [Dashboard examples](docs/dashboard-examples.md) and [automation examples](docs/automation-examples.md)
+- [Sunset quality notification blueprint](blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml)
+- [API usage](docs/api-usage.md), [API contract](docs/api-contract.md), and [contributing](CONTRIBUTING.md)
 
-## Entities
+## Support and license
 
-| Entity | Default | Description |
-| --- | --- | --- |
-| Quality | Yes | Forecast quality as a percentage |
-| Quality text | Yes | API description such as Poor or Excellent |
-| Event time | Optional | Predicted sunrise or sunset time |
-| Cloud cover | Optional | Forecast cloud-cover percentage |
-| Direction | Optional | Event direction in degrees |
-| Blue/golden-hour boundaries | Optional | Magic-hour start and end timestamps |
-
-Quality sensors also expose forecast details as attributes (event time, cloud
-cover, direction, magic-hour windows, and response metadata) when the API
-supplies them. Optional detailed entities create separate sensors for those
-values. Sensors become unavailable when that forecast field is missing; that is
-expected when the API reports no model data for a date.
-
-## API usage
-
-Each coordinator refresh requests one SunsetHue `/event` call per selected
-forecast date and enabled event type:
-
-`selected dates × enabled event types = API calls per refresh`
-
-Examples:
-
-- Today, sunrise and sunset: **2** calls
-- Today through day after tomorrow, sunrise and sunset: **6** calls
-- One day, sunset only: **1** call
-
-Setup validation uses one lightweight `forecast=false` request. Ongoing refresh
-uses `forecast=true` so quality sensors receive model data. The integration also
-refreshes shortly after each location's local midnight.
-
-Current quota and pricing details are in the
-[SunsetHue developer portal](https://sunsethue.com/dev-api/portal). See
-[docs/api-contract.md](docs/api-contract.md) for the request and response
-contract used by this integration.
-
-## Dashboard and automations
-
-- Dashboard card examples: [docs/dashboard-examples.md](docs/dashboard-examples.md)
-- Automation examples: [docs/automation-examples.md](docs/automation-examples.md)
-- Notification blueprint:
-  [blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml](blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml)
-
-[![Import the SunsetHue quality notification blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https://github.com/andrewtryder/ha-sunsethue/blob/main/blueprints/automation/sunsethue/notify_sunset_quality_threshold.yaml)
-
-Minimal native dashboard example (replace the entity IDs):
-
-```yaml
-type: entities
-title: Today's sunset forecast
-entities:
-  - entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
-    name: Quality
-  - entity: sensor.REPLACE_WITH_QUALITY_TEXT_ENTITY
-    name: Description
-  - type: attribute
-    entity: sensor.REPLACE_WITH_QUALITY_PERCENT_ENTITY
-    attribute: event_time
-    name: Event time
-```
-
-## Troubleshooting
-
-- Restart Home Assistant after installation before searching for the
-  integration.
-- Confirm the files live directly under `custom_components/sunsethue` (not a
-  nested `sunsethue/sunsethue` folder).
-- Check *Settings → System → Logs* for `sunsethue` load errors.
-- Daily quota exhaustion is reported as a quota-specific error, separate from
-  invalid coordinates or authentication failures.
-
-Full guide: [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Privacy and support
-
-The API key is stored in the config entry and sent only as the documented
-`x-api-key` HTTPS header. Diagnostics redact credentials and coordinates.
-Download diagnostics from the integration page when opening an issue, and review
-the file before sharing it.
-
-Report defects on
-[GitHub Issues](https://github.com/andrewtryder/ha-sunsethue/issues). Never
-include an API key, exact address, or unreviewed diagnostics.
-
-## Development
-
-Contributor setup, tests, commits, and release process:
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-```bash
-uv sync --group dev --locked
-uv run pre-commit install
-uv run python -m pytest
-```
+Report defects on [GitHub](https://github.com/andrewtryder/ha-sunsethue/issues). This is an unofficial community integration and is not supported by Home Assistant or SunsetHue. See the [license](LICENSE).
