@@ -19,13 +19,15 @@ See sunrise and sunset quality forecasts in Home Assistant, including event time
 
 ## Requirements and compatibility
 
-- Home Assistant **2026.3.0 or newer** and HACS, or filesystem access for a manual installation.
+- Home Assistant **2026.3.0 or newer** and HACS (or the built-in Home Assistant Marketplace in **2026.11+**), or filesystem access for a manual installation.
 - A SunsetHue API key from the [developer portal](https://sunsethue.com/dev-api/portal).
 - Forecasts cover up to three local dates: today, tomorrow, and the day after tomorrow, in the selected location's time zone.
 
-## Install with HACS
+## Install with HACS or Home Assistant Marketplace
 
-1. In HACS, add `https://github.com/andrewtryder/ha-sunsethue` as a custom repository in the **Integration** category, or use the HACS badge above.
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=andrewtryder&repository=ha-sunsethue&category=integration)
+
+1. Click the **Open your Home Assistant instance** button above (backwards compatible: opens **HACS** on earlier versions and the built-in **Home Assistant Marketplace** on **2026.11+**), or manually add `https://github.com/andrewtryder/ha-sunsethue` as a custom repository in the **Integration** category.
 2. Install a numbered **SunsetHue** release; do not install `main` for normal use.
 3. Restart Home Assistant.
 
