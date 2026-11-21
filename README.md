@@ -46,7 +46,7 @@ New installations request today’s sunrise and sunset every six hours. Two even
 
 Quality percentage and quality text sensors are enabled by default. Optional sensors expose event time, cloud cover, direction, and blue/golden-hour boundaries when the API supplies them. A missing forecast field can make its sensor unavailable; the API may have no model data for a date.
 
-The number of API calls per refresh is **selected dates × enabled event types**. More dates and event types consume more quota. Check the [developer portal](https://sunsethue.com/dev-api/portal) for current pricing and limits and [API usage](docs/api-usage.md) for examples.
+The maximum number of forecast API calls per refresh is **selected dates × enabled event types**. More dates and event types consume more quota. A draft run-aware refresh optimization checks `/run-info` before redownloading a fully covered forecast grid, avoiding redundant event calls when the model run is unchanged. Its live response schema must be verified before release. Check the [developer portal](https://sunsethue.com/dev-api/portal) for current pricing and limits and [API usage](docs/api-usage.md) for examples.
 
 ## Common problems and troubleshooting
 
