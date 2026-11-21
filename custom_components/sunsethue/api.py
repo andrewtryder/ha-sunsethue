@@ -268,6 +268,7 @@ def _parse_event_forecast(
     model_data = _required_bool(data, "model_data")
     if expected_event_type is not None and event_type is not expected_event_type:
         raise SunsetHueInvalidResponseError("Response event type does not match request")
+    run_info = _parse_optional_model_run(payload)
     return EventForecast(
         response_time=_parse_datetime(_required_string(payload, "time")),
         location=_parse_coordinates(_required_object(payload, "location")),
@@ -281,7 +282,7 @@ def _parse_event_forecast(
         direction=_parse_direction(data),
         blue_hour=_optional_magic_window(data, "blue_hour"),
         golden_hour=_optional_magic_window(data, "golden_hour"),
-        run_id=(run_info.identifier if (run_info := _parse_optional_model_run(payload)) else None),
+        run_id=run_info.identifier if run_info is not None else None,
         next_expected_update=run_info.next_expected_update if run_info is not None else None,
     )
 
