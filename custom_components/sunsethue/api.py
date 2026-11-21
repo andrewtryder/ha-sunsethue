@@ -16,6 +16,7 @@ from .const import (
     API_BASE_URL,
     API_EVENT_PATH,
     API_KEY_HEADER,
+    API_RUN_INFO_PATH,
     API_TIMEOUT_SECONDS,
     MAX_API_ERROR_MESSAGE_LENGTH,
     MAX_RESPONSE_BYTES,
@@ -24,7 +25,7 @@ from .const import (
     VERSION,
     SunsetHueEventType,
 )
-from .models import Coordinates, EventForecast, MagicHourWindow
+from .models import Coordinates, EventForecast, MagicHourWindow, ModelRunInfo
 
 _LOGGER = logging.getLogger(__name__)
 _USER_AGENT = f"HomeAssistant/SunsetHue/{VERSION}"
@@ -124,10 +125,28 @@ class SunsetHueClient:
             "type": event_type.value,
             "forecast": str(forecast).lower(),
         }
+        payload = await self._async_request_json(API_EVENT_PATH, params=params)
+        return _parse_event_forecast(payload, expected_event_type=event_type)
+
+    async def async_get_run_info(self) -> ModelRunInfo:
+        """Fetch the current model run without requesting a forecast grid."""
+        payload = await self._async_request_json(API_RUN_INFO_PATH, params=None)
+        info = _parse_optional_model_run(payload)
+        if info is None:
+            raise SunsetHueInvalidResponseError("Unknown run-info response structure")
+        return info
+
+    @property
+    def run_info_cache_key(self) -> str:
+        """Return a process-local opaque identifier for sharing run metadata."""
+        return str(hash(self._api_key))
+
+    async def _async_request_json(self, path: str, *, params: dict[str, str | float] | None) -> Any:
+        """Read bounded JSON and apply consistent API authentication/backoff handling."""
         headers = {API_KEY_HEADER: self._api_key, "User-Agent": _USER_AGENT}
         try:
             async with self._session.get(
-                f"{API_BASE_URL}{API_EVENT_PATH}",
+                f"{API_BASE_URL}{path}",
                 params=params,
                 headers=headers,
                 timeout=self._timeout,
@@ -148,10 +167,9 @@ class SunsetHueClient:
 
         if 200 <= status < 300:
             try:
-                payload = json.loads(body)
+                return json.loads(body)
             except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as err:
                 raise SunsetHueInvalidResponseError("Invalid JSON response") from err
-            return _parse_event_forecast(payload, expected_event_type=event_type)
 
         api_error = _parse_api_error(status, body)
         if _is_quota_exceeded(api_error):
@@ -247,6 +265,7 @@ def _parse_event_forecast(
     model_data = _required_bool(data, "model_data")
     if expected_event_type is not None and event_type is not expected_event_type:
         raise SunsetHueInvalidResponseError("Response event type does not match request")
+    run_info = _parse_optional_model_run(payload)
     return EventForecast(
         response_time=_parse_datetime(_required_string(payload, "time")),
         location=_parse_coordinates(_required_object(payload, "location")),
@@ -260,7 +279,83 @@ def _parse_event_forecast(
         direction=_parse_direction(data),
         blue_hour=_optional_magic_window(data, "blue_hour"),
         golden_hour=_optional_magic_window(data, "golden_hour"),
+        run_id=run_info.identifier if run_info is not None else None,
+        next_expected_update=run_info.next_expected_update if run_info is not None else None,
     )
+
+
+_RUN_ID_KEYS = ("run_id", "run_identifier", "runId", "current_run_id", "model_run", "current_run", "run")
+_NEXT_UPDATE_KEYS = (
+    "next_expected_update",
+    "next_expected_update_time",
+    "next_update",
+    "next_update_time",
+    "next_update_at",
+    "next_run_time",
+    "next_run_expected_update",
+)
+
+
+def _parse_optional_model_run(payload: Any) -> ModelRunInfo | None:
+    """Recognize optional run metadata without rejecting valid legacy event bodies."""
+    if not isinstance(payload, dict):
+        return None
+    roots = [payload]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        roots.append(data)
+    for root in roots:
+        run_info = root.get("run_info")
+        containers = [root]
+        if isinstance(run_info, dict):
+            containers.append(run_info)
+        for container in containers:
+            identifier = _run_identifier(container)
+            current = container.get("current_run") or container.get("current") or container.get("run")
+            if identifier is None and isinstance(current, dict):
+                identifier = _run_identifier(current, nested=True)
+            if identifier is None:
+                runs = container.get("runs")
+                if isinstance(runs, dict):
+                    current = runs.get("current")
+                    if isinstance(current, dict):
+                        identifier = _run_identifier(current, nested=True)
+            if identifier is None:
+                continue
+            next_info = container.get("next_run") or container.get("next")
+            if not isinstance(next_info, dict):
+                runs = container.get("runs")
+                next_info = runs.get("next") if isinstance(runs, dict) else None
+            next_update = _run_timestamp(container, _NEXT_UPDATE_KEYS)
+            if next_update is None and isinstance(next_info, dict):
+                next_update = _run_timestamp(
+                    next_info,
+                    ("expected_update", "expected_update_time", "expected_at", "update_time", "time", "at"),
+                )
+            return ModelRunInfo(identifier=identifier, next_expected_update=next_update)
+    return None
+
+
+def _run_identifier(value: dict[str, Any], *, nested: bool = False) -> str | None:
+    """Return an opaque, bounded identifier from documented-style fields."""
+    names = (*_RUN_ID_KEYS, "id", "identifier", "name") if nested else _RUN_ID_KEYS
+    for name in names:
+        item = value.get(name)
+        if isinstance(item, str) and 0 < len(item.strip()) <= 128:
+            return item.strip()
+    return None
+
+
+def _run_timestamp(value: dict[str, Any], keys: tuple[str, ...]) -> datetime | None:
+    """Ignore malformed optional schedule hints rather than rejecting the forecast."""
+    for name in keys:
+        item = value.get(name)
+        if isinstance(item, str):
+            try:
+                return _parse_datetime(item)
+            except SunsetHueInvalidResponseError:
+                continue
+    return None
 
 
 def _required_object(value: dict[str, Any], key: str) -> dict[str, Any]:

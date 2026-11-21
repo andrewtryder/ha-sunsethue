@@ -43,6 +43,16 @@ class EventForecast:
     blue_hour: MagicHourWindow | None
     golden_hour: MagicHourWindow | None
     forecast_date: date | None = None
+    run_id: str | None = None
+    next_expected_update: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRunInfo:
+    """Provider model-run identifier and its expected next publication time."""
+
+    identifier: str
+    next_expected_update: datetime | None
 
 
 @dataclass(frozen=True, slots=True)

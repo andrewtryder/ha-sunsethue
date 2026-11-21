@@ -24,10 +24,15 @@ forecast date so setup can confirm the API key, connectivity, and parameters
 without spending model-data credits. Coordinator refresh sends `forecast=true`
 because quality sensors need model fields. New installations default to one
 local date (today) with sunrise and sunset enabled, so each refresh uses two
-`forecast=true` requests unless the user expands the window in options. The
-integration never calls `/usage` or any other endpoint. A response costs 1
-credit when `model_data` is false and 5 credits when it is true, per the
-Postman documentation.
+`forecast=true` requests unless the user expands the window in options. The integration does not call `/usage`. The run-aware refresh proposal adds
+`GET /run-info` (also authenticated with `x-api-key`) to check whether a new
+model run is available before sending a forecast batch. The exact run metadata
+JSON shape and whether `/run-info` consumes API credits **must be verified
+against the provider's updated schema before release**. The client supports
+optional run ID and next-expected-update fields and falls back to the existing
+forecast requests when that information is absent or unrecognized. A response
+costs 1 credit when `model_data` is false and 5 credits when it is true, per
+the Postman documentation as verified in August 2026.
 
 ## Response
 
@@ -77,3 +82,22 @@ bounded `Retry-After` delay. Unknown error codes are treated as generic invalid
 requests or connection failures by HTTP class only—those mappings are
 implementation inferences, not claimed API guarantees. No branding or
 attribution requirement was found in the reviewed sources.
+
+
+## Proposed model-run optimization (November 2026; pending live verification)
+
+The model-run update announced for November 25 introduces a run identifier,
+an expected next publication timestamp, and `/run-info`. The HA coordinator
+retains its configured 6/12/24-hour interval and refresh after local midnight.
+It may skip `/event` downloads only when **all** selected forecast dates and
+events have been cached for the exact current local dates, carry one consistent
+run ID, and `/run-info` confirms that run is still current. Different Home
+Assistant entries using the same API key share a ten-minute metadata cache.
+At first startup, after a date rollover, or when metadata cannot be decoded,
+the normal forecast fetch remains in place. Provider authentication, quota,
+and rate-limit responses are not suppressed.
+
+This optimization must be validated with redacted live `/event` and
+`/run-info` payloads before this draft PR is released. The optional parser
+accepts several plausible field layouts and intentionally ignores unknown
+shapes rather than guessing freshness.

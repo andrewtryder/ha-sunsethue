@@ -19,12 +19,14 @@ from .const import (
     CONF_FORECAST_START_OFFSET,
     CONF_LOCATION_ID,
     CONF_TIME_ZONE,
+    DOMAIN,
     LEGACY_FORECAST_DAYS,
     LEGACY_FORECAST_START_OFFSET,
     MIN_HA_VERSION,
     PLATFORMS,
 )
 from .coordinator import SunsetHueDataUpdateCoordinator
+from .run_info import ModelRunMonitor
 from .types import SunsetHueConfigEntry, SunsetHueRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,7 +51,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SunsetHueConfigEntry) ->
     if time_zone is None:
         raise ConfigEntryError("Invalid SunsetHue time zone")
     client = SunsetHueClient(async_get_clientsession(hass), entry.data[CONF_API_KEY])
-    coordinator = SunsetHueDataUpdateCoordinator(hass, entry, client, time_zone)
+    # All entries in this Home Assistant instance share one short-lived run-info cache.
+    run_monitor = hass.data.setdefault(f"{DOMAIN}_run_monitor", ModelRunMonitor())
+    coordinator = SunsetHueDataUpdateCoordinator(hass, entry, client, time_zone, run_monitor)
     await coordinator.async_config_entry_first_refresh()
     coordinator.async_schedule_midnight_refresh()
     entry.runtime_data = SunsetHueRuntimeData(

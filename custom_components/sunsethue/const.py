@@ -15,6 +15,8 @@ MIN_HA_VERSION = "2026.3.0"
 
 API_BASE_URL = "https://api.sunsethue.com"
 API_EVENT_PATH = "/event"
+API_RUN_INFO_PATH = "/run-info"
+RUN_INFO_CACHE_SECONDS = 10 * 60
 API_KEY_HEADER = "x-api-key"
 API_TIMEOUT_SECONDS = 15
 MAX_RESPONSE_BYTES = 128 * 1024
