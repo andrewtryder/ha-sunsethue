@@ -35,7 +35,11 @@ class ModelRunMonitor:
 
             try:
                 info = await client.async_get_run_info()
-            except (SunsetHueAuthError, SunsetHueQuotaExceededError, SunsetHueRateLimitError):
+            except (
+                SunsetHueAuthError,
+                SunsetHueQuotaExceededError,
+                SunsetHueRateLimitError,
+            ):
                 raise
             except SunsetHueError:
                 info = None
