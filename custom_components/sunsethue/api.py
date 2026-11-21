@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import hmac
+import hashlib
 import json
 import logging
 import re
@@ -140,7 +140,7 @@ class SunsetHueClient:
     @property
     def run_info_cache_key(self) -> str:
         """Scope shared run metadata to one credential without exposing the key."""
-        return hmac.digest(b"sunsethue-run-info-cache-key-v1", self._api_key.encode(), "sha256").hex()
+        return hashlib.blake2b(self._api_key.encode(), digest_size=16, person=b"sunsethue-run-v1").hexdigest()
 
     async def _async_request_json(self, path: str, *, params: dict[str, str | float] | None) -> Any:
         """Read bounded JSON and apply consistent API authentication/backoff handling."""
