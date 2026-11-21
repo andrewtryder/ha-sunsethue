@@ -16,8 +16,8 @@ import aiohttp
 from .const import (
     API_BASE_URL,
     API_EVENT_PATH,
-    API_RUN_INFO_PATH,
     API_KEY_HEADER,
+    API_RUN_INFO_PATH,
     API_TIMEOUT_SECONDS,
     MAX_API_ERROR_MESSAGE_LENGTH,
     MAX_RESPONSE_BYTES,
@@ -142,9 +142,7 @@ class SunsetHueClient:
         """Scope shared run metadata to one credential without exposing the key."""
         return hashlib.sha256(self._api_key.encode()).hexdigest()
 
-    async def _async_request_json(
-        self, path: str, *, params: dict[str, str | float] | None
-    ) -> Any:
+    async def _async_request_json(self, path: str, *, params: dict[str, str | float] | None) -> Any:
         """Read bounded JSON and apply consistent API authentication/backoff handling."""
         headers = {API_KEY_HEADER: self._api_key, "User-Agent": _USER_AGENT}
         try:
@@ -332,7 +330,8 @@ def _parse_optional_model_run(payload: Any) -> ModelRunInfo | None:
             next_update = _run_timestamp(container, _NEXT_UPDATE_KEYS)
             if next_update is None and isinstance(next_info, dict):
                 next_update = _run_timestamp(
-                    next_info, ("expected_update", "expected_update_time", "expected_at", "update_time", "time", "at")
+                    next_info,
+                    ("expected_update", "expected_update_time", "expected_at", "update_time", "time", "at"),
                 )
             return ModelRunInfo(identifier=identifier, next_expected_update=next_update)
     return None
