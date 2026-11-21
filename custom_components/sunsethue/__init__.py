@@ -19,10 +19,10 @@ from .const import (
     CONF_FORECAST_START_OFFSET,
     CONF_LOCATION_ID,
     CONF_TIME_ZONE,
+    DOMAIN,
     LEGACY_FORECAST_DAYS,
     LEGACY_FORECAST_START_OFFSET,
     MIN_HA_VERSION,
-    DOMAIN,
     PLATFORMS,
 )
 from .coordinator import SunsetHueDataUpdateCoordinator
