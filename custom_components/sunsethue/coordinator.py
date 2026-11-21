@@ -171,9 +171,7 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
         )
 
 
-def _reusable_run_id(
-    previous: SunsetHueCoordinatorData | None, keys: list[ForecastKey], today: date
-) -> str | None:
+def _reusable_run_id(previous: SunsetHueCoordinatorData | None, keys: list[ForecastKey], today: date) -> str | None:
     """Only reuse a fully covered grid for exactly the same local forecast dates."""
     if previous is None or set(previous.forecasts) != set(keys):
         return None
