@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from homeassistant.core import HomeAssistant
@@ -39,6 +39,7 @@ from .const import (
     update_interval_from_options,
 )
 from .models import Coordinates, EventForecast, ForecastKey, SunsetHueCoordinatorData
+from .run_info import ModelRunMonitor
 from .types import SunsetHueConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
@@ -53,11 +54,13 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
         entry: SunsetHueConfigEntry,
         client: SunsetHueClient,
         time_zone: ZoneInfo,
+        run_info_monitor: ModelRunMonitor | None = None,
     ) -> None:
         """Initialize the coordinator for one location."""
         self.client = client
         self._entry = entry
         self._time_zone = time_zone
+        self._run_info_monitor = run_info_monitor or ModelRunMonitor()
         self._cancel_midnight: Callable[[], None] | None = None
         super().__init__(
             hass,
@@ -114,6 +117,20 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
             for day_offset in range(start_offset, start_offset + days)
             for event_type in events
         ]
+        previous = self.data
+        if (old_run_id := _reusable_run_id(previous, keys, today)) is not None:
+            try:
+                current_run = await self._run_info_monitor.async_current(self.client)
+            except SunsetHueAuthError as err:
+                raise ConfigEntryAuthFailed(translation_domain=DOMAIN, translation_key="reauth_required") from err
+            except SunsetHueRateLimitError as err:
+                raise UpdateFailed("SunsetHue API rate limit reached", retry_after=err.retry_after) from err
+            except SunsetHueQuotaExceededError as err:
+                raise UpdateFailed("SunsetHue daily API quota exceeded") from err
+            if current_run is not None and current_run.identifier == old_run_id:
+                _LOGGER.debug("SunsetHue model run unchanged; reusing complete local-day forecasts")
+                return previous
+
         try:
             async with asyncio.TaskGroup() as task_group:
                 for key in keys:
@@ -152,6 +169,21 @@ class SunsetHueDataUpdateCoordinator(DataUpdateCoordinator[SunsetHueCoordinatorD
             manufacturer="SunsetHue",
             entry_type=dr.DeviceEntryType.SERVICE,
         )
+
+
+def _reusable_run_id(
+    previous: SunsetHueCoordinatorData | None, keys: list[ForecastKey], today: date
+) -> str | None:
+    """Only reuse a fully covered grid for exactly the same local forecast dates."""
+    if previous is None or set(previous.forecasts) != set(keys):
+        return None
+    identifiers: set[str] = set()
+    for key in keys:
+        forecast = previous.forecasts[key]
+        if forecast.forecast_date != today + timedelta(days=key.day_offset) or not forecast.run_id:
+            return None
+        identifiers.add(forecast.run_id)
+    return next(iter(identifiers)) if len(identifiers) == 1 else None
 
 
 def _iter_sunsethue_errors(error_group: BaseExceptionGroup) -> tuple[SunsetHueError, ...]:
